@@ -84,7 +84,7 @@ function vAuth(){
       <div class="seg" role="group" aria-label="Acceso"><button data-act="auth-modo" data-m="entrar" aria-pressed="${m==="entrar"}">Entrar</button><button data-act="auth-modo" data-m="registro" aria-pressed="${m==="registro"}">Crear cuenta</button><button data-act="auth-modo" data-m="olvido" aria-pressed="${m==="olvido"}">Olvidé mi contraseña</button></div>
       <form data-form="auth" style="display:grid;gap:12px">
         ${m==="registro"?`<label class="field"><span>Nombre de usuario</span><input type="text" id="a-usuario" required minlength="3" maxlength="24" pattern="[A-Za-z0-9_.áéíóúÁÉÍÓÚñÑ\\-]+" placeholder="Así te verán los demás" autocomplete="username"></label>`:""}
-        <label class="field"><span>Correo</span><input type="email" id="a-correo" required autocomplete="email"></label>
+        <label class="field"><span>${m==="entrar"?"Correo o nombre de usuario":"Correo"}</span><input type="${m==="entrar"?"text":"email"}" id="a-correo" required autocomplete="${m==="entrar"?"username":"email"}" autocapitalize="none" spellcheck="false"></label>
         ${m!=="olvido"?`<label class="field"><span>Contraseña</span><input type="password" id="a-clave" required minlength="6" autocomplete="${m==="registro"?"new-password":"current-password"}"></label>`:""}
         <button class="btn primary" type="submit">${m==="entrar"?"Entrar":m==="registro"?"Crear mi cuenta":"Enviarme un enlace"}</button>
         <span id="a-st" class="small muted"></span>
@@ -104,6 +104,7 @@ async function enviarAuth(){
   st.textContent = "Un momento…";
   const vuelta = location.origin + location.pathname;
   if (S.authMode === "entrar"){
+    if (!correo.includes("@")) return entrarConUsuario(correo, clave, st);
     const { error } = await sb.auth.signInWithPassword({ email:correo, password:clave });
     st.textContent = error ? (/confirm/i.test(error.message) ? "Confirma primero tu correo: te enviamos un enlace al registrarte." : "Correo o contraseña incorrectos.") : "";
   } else if (S.authMode === "registro"){
@@ -117,6 +118,16 @@ async function enviarAuth(){
     const { error } = await sb.auth.resetPasswordForEmail(correo, { redirectTo:vuelta });
     st.textContent = error ? error.message : "Si ese correo tiene cuenta, te llegará un enlace para cambiar la contraseña.";
   }
+}
+// El correo se busca en el servidor (función dm-entrar): nunca llega al navegador
+async function entrarConUsuario(usuario, clave, st){
+  const MSG = { credenciales:"Usuario o contraseña incorrectos.", sin_confirmar:"Confirma primero tu correo: te enviamos un enlace al registrarte.", rate_limited:"Demasiados intentos. Espera un minuto y vuelve a probar." };
+  const { data, error } = await sb.functions.invoke(CFG.funcionEntrar || "dm-entrar", { body:{ usuario, clave } });
+  let code = data?.error;
+  if (error){ try { code = (await error.context.json()).error; } catch { code = "red"; } }
+  if (code || !data?.access_token){ st.textContent = MSG[code] || "No se pudo entrar. Revisa tu conexión y vuelve a intentarlo."; return; }
+  const r = await sb.auth.setSession({ access_token:data.access_token, refresh_token:data.refresh_token });
+  st.textContent = r.error ? "No se pudo entrar. Vuelve a intentarlo." : "";
 }
 function pintarMenu(){
   const m = $("#userMenu");

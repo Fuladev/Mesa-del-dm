@@ -19,6 +19,7 @@ Web en español para jugar a D&D 5ª edición (reglas SRD) con amigos:
 | Base de datos, cuentas y tiempo real | Supabase, proyecto `dd-impresion-3d`, tablas con prefijo `dm_` |
 | Esquema y permisos (RLS) | `supabase/migrations/` |
 | Llamadas a la IA (Claude) | Función `dm-ia` de Supabase: `supabase/functions/dm-ia/index.ts` |
+| Entrar con nombre de usuario | Función `dm-entrar`: busca el correo en el servidor, así nunca llega al navegador |
 
 La clave de Anthropic **nunca** está en el navegador. Vive como secreto de la función `dm-ia`, que comprueba que quien llama tiene sesión iniciada y aplica un límite de 200 llamadas por usuario y día.
 
