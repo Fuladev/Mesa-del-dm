@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Mesa del Dungeon Master</title>
+<meta name="description" content="D&D 5e en español: personajes, facciones compartidas, campañas y una IA que hace de Dungeon Master o asesora a tu DM.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpolygon points='16,2 29,9.5 29,22.5 16,30 3,22.5 3,9.5' fill='%23A3263C'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&family=Alegreya+Sans:ital,wght@0,400;0,500;0,700;1,400&family=JetBrains+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="styles.css">
+<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)} body{margin:0} [hidden]{display:none!important} img{max-width:100%}</style>
+</head>
+<body>
+<header class="top">
+  <div class="top-in">
+    <a class="brand" href="#inicio" aria-label="Inicio">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><polygon points="16,2 29,9.5 29,22.5 16,30 3,22.5 3,9.5" fill="var(--accent)"/><polygon points="16,7 24,21 8,21" fill="none" stroke="var(--accent-ink)" stroke-width="1.6"/><text x="16" y="19" text-anchor="middle" font-size="7" font-family="monospace" font-weight="700" fill="var(--accent-ink)">20</text></svg>
+      <b>Mesa del DM</b>
+    </a>
+    <nav class="tabs" id="tabs" aria-label="Secciones">
+      <a class="tab" href="#inicio">Inicio</a>
+      <a class="tab" href="#personajes">Personajes</a>
+      <a class="tab" href="#facciones">Razas y facciones</a>
+      <a class="tab" href="#campanas">Partidas</a>
+      <a class="tab" href="#jugar">Jugar con IA</a>
+      <a class="tab" href="#asistente">Asistente del DM</a>
+      <a class="tab" href="#dados">Wiki de dados</a>
+    </nav>
+    <div class="user-menu" id="userMenu"></div>
+  </div>
+</header>
+<main id="app"><div class="loading">Cargando la mesa…</div></main>
+<div class="toast" id="toast" hidden></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.3/dist/umd/supabase.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
