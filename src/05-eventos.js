@@ -126,6 +126,7 @@ document.addEventListener("click", async (ev) => {
     case "fac-borrar": confirmar(t, async () => { if (await borrar("dm_facciones", id, "Borrada. Los personajes que la usaban conservan sus datos.")){ S.facciones = S.facciones.filter(f => f.id !== id); S.verFac = null; } render(); }); break;
     // partidas
     case "camp-generar": generarCampana(); break;
+    case "camp-manual": crearManual(); break;
     case "camp-ver": S.campSel = id; S.spoilers = false; ir("#campanas"); window.scrollTo(0,0); break;
     case "camp-volver": S.campSel = null; render(); break;
     case "camp-borrar": confirmar(t, async () => { if (await borrar("dm_partidas", id, "Partida borrada.")){ S.partidas = S.partidas.filter(c => c.id !== id); S.participantes = S.participantes.filter(x => x.partida_id !== id); S.campSel = null; } render(); }); break;

@@ -470,7 +470,7 @@ const iaJSON = async (prompt, esfuerzo="medium") => parseJSON((await ia({ modo:"
 function iaMsg(e){
   switch (e?.code){
     case "limite_diario": return "Has llegado al límite diario de mensajes de IA. Vuelve mañana.";
-    case "sin_clave": return "La IA aún no está configurada: falta la clave de Anthropic en Supabase.";
+    case "sin_clave": return "La IA está desactivada por ahora en esta mesa. Puedes hacerlo todo a mano: fichas, razas, facciones y partidas.";
     case "no_autorizado": return "Tu sesión ha caducado. Vuelve a entrar.";
     case "sin_perfil": return "Primero elige tu nombre de usuario.";
     case "refused": return "La IA no quiso responder a eso. Prueba a reformularlo.";
@@ -926,6 +926,16 @@ function vCampanas(){
       <div class="row"><button class="btn primary" data-act="camp-generar" ${S.busy?"disabled":""}>Generar campaña</button><span id="c-st" class="small muted"></span></div>
     </div>
     <div class="panel">
+      <div class="panel-h"><h2>O escríbela a mano</h2><span class="small muted">Sin IA: ideal si tenéis DM propio.</span></div>
+      <div class="grid2">
+        <label class="field"><span class="req">Título</span><input type="text" id="m-titulo" maxlength="120" placeholder="Ej.: El Faro de los Ahogados"></label>
+        <label class="field"><span>¿Quién dirige?</span><select id="m-modo"><option value="humano">Tenemos DM propio</option><option value="ia">La IA es el DM</option></select></label>
+      </div>
+      <label class="field"><span class="req">El gancho (lo que verán todos)</span><textarea id="m-gancho" placeholder="Cómo empieza la aventura, sin desvelar secretos"></textarea></label>
+      <label class="field"><span>Notas secretas del DM (no se muestran a los jugadores)</span><textarea id="m-sinopsis" placeholder="Qué está pasando de verdad, villano, giros, final…"></textarea></label>
+      <div class="row"><button class="btn" data-act="camp-manual" ${S.busy?"disabled":""}>Crear partida</button></div>
+    </div>
+    <div class="panel">
       <h2>Partidas de la mesa</h2>
       ${S.partidas.length ? `<div class="camp-list">${S.partidas.map(c => { const yo = miParticipacion(c.id), n = participantesDe(c.id).length; return `<div class="camp-item"><div style="display:grid;gap:4px"><h3>${esc(c.titulo)}</h3><div class="small muted">${esc(c.tono||"")} · ${c.modo==="humano"?"DM propio":"IA como DM"} · ${n} jugador${n===1?"":"es"} ${c.ejemplo?'· <span class="tag-ej">ejemplo</span>':""}</div><div class="row">${ownerChip(c.creador)}${yo?`<span class="small">Juegas con <b>${esc(pjById(yo.personaje_id)?.nombre||"tu personaje")}</b></span>`:""}</div></div>
         <div class="row"><button class="btn sm" data-act="camp-ver" data-id="${c.id}">${yo||c.creador===S.me?"Abrir":"Ver y unirme"}</button>${puedoJugar(c)?`<button class="btn sm primary" data-act="${c.modo==="humano"?"ir-asistente":"ir-jugar"}" data-id="${c.id}">${c.modo==="humano"?"Asistente del DM":"Jugar"}</button>`:""}</div></div>`; }).join("")}</div>`
@@ -943,14 +953,14 @@ function vCampDetalle(c){
     <div class="panel"><h3>El gancho</h3><p>${esc(c.gancho)}</p>
       ${soyCreador ? `<label class="switch"><input type="checkbox" data-act="spoilers" ${S.spoilers?"checked":""}> Mostrar la información secreta del DM (sinopsis, secretos y final)</label>` : `<p class="small muted">El resto de la campaña es secreto: lo irás descubriendo al jugar.</p>`}</div>
     ${verSecretos ? `
-    <div class="panel"><h3>De qué va (secreto)</h3><p>${esc(c.sinopsis)}</p></div>
-    <div class="panel"><h2>Actos</h2><div class="acts">${(c.actos||[]).map((a,i)=>`<div class="act"><h3>Acto ${i+1}: ${esc(a.titulo)}</h3><p><b>Objetivo:</b> ${esc(a.objetivo)}</p>${a.escenas?.length?`<ul>${a.escenas.map(e=>`<li>${esc(e)}</li>`).join("")}</ul>`:""}${a.encuentro?`<p class="small"><b>Encuentro clave:</b> ${esc(a.encuentro)}</p>`:""}</div>`).join("")}</div>
-      ${c.final?`<p><b>Posible final:</b> ${esc(c.final)}</p>`:""}</div>
-    <div class="panel"><h2>Personajes no jugadores</h2><div class="npcs">${(c.pnjs||[]).map(n=>`<div class="npc"><b>${esc(n.nombre)}</b><span class="small muted">${esc(n.rol)}</span><span class="small">${esc(n.descripcion)}</span>${n.secreto?`<span class="secret">Secreto: ${esc(n.secreto)}</span>`:""}</div>`).join("")}</div></div>
-    <div class="grid2">
+    ${c.sinopsis?`<div class="panel"><h3>De qué va (secreto)</h3><p style="white-space:pre-wrap">${esc(c.sinopsis)}</p></div>`:""}
+    ${(c.actos||[]).length?`<div class="panel"><h2>Actos</h2><div class="acts">${(c.actos||[]).map((a,i)=>`<div class="act"><h3>Acto ${i+1}: ${esc(a.titulo)}</h3><p><b>Objetivo:</b> ${esc(a.objetivo)}</p>${a.escenas?.length?`<ul>${a.escenas.map(e=>`<li>${esc(e)}</li>`).join("")}</ul>`:""}${a.encuentro?`<p class="small"><b>Encuentro clave:</b> ${esc(a.encuentro)}</p>`:""}</div>`).join("")}</div>
+      ${c.final?`<p><b>Posible final:</b> ${esc(c.final)}</p>`:""}</div>`:""}
+    ${(c.pnjs||[]).length?`<div class="panel"><h2>Personajes no jugadores</h2><div class="npcs">${(c.pnjs||[]).map(n=>`<div class="npc"><b>${esc(n.nombre)}</b><span class="small muted">${esc(n.rol)}</span><span class="small">${esc(n.descripcion)}</span>${n.secreto?`<span class="secret">Secreto: ${esc(n.secreto)}</span>`:""}</div>`).join("")}</div></div>`:""}
+    ${(c.lugares||[]).length||(c.giros||[]).length?`<div class="grid2">
       <div class="panel"><h2>Lugares</h2><ul>${(c.lugares||[]).map(l=>`<li><b>${esc(l.nombre)}:</b> ${esc(l.descripcion)}</li>`).join("")}</ul></div>
       <div class="panel"><h2>Giros y consejos</h2><ul>${(c.giros||[]).map(g=>`<li>${esc(g)}</li>`).join("")}${(c.consejosDM||[]).map(g=>`<li class="muted">${esc(g)}</li>`).join("")}</ul></div>
-    </div>` : ""}
+    </div>`:""}` : ""}
     <div class="panel">
       <div class="panel-h"><h2>Jugadores</h2><span class="small muted">Un personaje por jugador</span></div>
       ${parts.length ? parts.map(x => { const p = pjById(x.personaje_id); return `<div class="part"><div style="display:grid;gap:2px"><b>${esc(p?.nombre || "Personaje borrado")}</b><span class="small muted">${p?esc(derive(p).raza.nombre)+" "+esc(p.clase)+" nivel "+p.nivel:""}</span></div><div class="row">${ownerChip(x.usuario_id)}${soyCreador && x.usuario_id!==S.me?`<button class="btn sm ghost" data-act="part-quitar" data-u="${x.usuario_id}">Quitar</button>`:""}</div></div>`; }).join("") : `<p class="small muted">Nadie se ha unido todavía.</p>`}
@@ -969,6 +979,7 @@ async function generarCampana(){
   for (const k of ["ambiente","tono","duracion","nivel","jugadores","ideas","modo"]) { const el = $("#c-"+k); if (el) f[k] = el.value; }
   const mundo = $("#c-mundo"); if (mundo) f.usarMundo = mundo.checked;
   S.busy = true; render(); $("#c-st").innerHTML = thinking("Escribiendo la campaña, puede tardar un minuto…");
+  let err = "";
   try {
     const n = f.duracion.startsWith("Una") ? 3 : f.duracion.startsWith("Corta") ? 4 : 5;
     const mundoTxt = f.usarMundo && S.facciones.length ? "Razas y facciones creadas por la mesa (intégralas en la historia: PNJ, lugares o conflictos):\n" + S.facciones.slice(0,12).map(x => "- " + facResumen(x)).join("\n") : "";
@@ -983,8 +994,20 @@ Responde solo con JSON:
     const datos = campDatos({ ...r, ambiente:f.ambiente, tono:f.tono, duracion:f.duracion, nivel:+f.nivel, jugadores:+f.jugadores });
     const row = await guardar(sb.from("dm_partidas").insert({ titulo:String(r.titulo).slice(0,120), modo:f.modo, datos }).select().single(), "Campaña creada. Ahora únete con tu personaje.");
     const c = partFromRow(row); S.partidas = [c, ...S.partidas]; S.campSel = c.id;
-  } catch (e) { const st = $("#c-st"); if (st) st.textContent = e?.code ? iaMsg(e) : errorTexto(e); }
+  } catch (e) { err = e?.code ? iaMsg(e) : errorTexto(e); }
   S.busy = false; render();
+  if (err){ const st = $("#c-st"); if (st) st.textContent = err; }
+}
+async function crearManual(){
+  const titulo = $("#m-titulo").value.trim(), gancho = $("#m-gancho").value.trim(), sinopsis = $("#m-sinopsis").value.trim(), modo = $("#m-modo").value;
+  if (!titulo || !gancho){ toast("Escribe al menos el título y el gancho."); (titulo ? $("#m-gancho") : $("#m-titulo")).focus(); return; }
+  S.busy = true; render();
+  try {
+    const datos = campDatos({ gancho, sinopsis, actos:[], pnjs:[], lugares:[], giros:[], consejosDM:[], ambiente:"", tono:"" });
+    const row = await guardar(sb.from("dm_partidas").insert({ titulo:titulo.slice(0,120), modo, datos }).select().single(), "Partida creada. Ahora únete con tu personaje.");
+    const c = partFromRow(row); S.partidas = [c, ...S.partidas]; S.campSel = c.id;
+  } catch {}
+  S.busy = false; render(); window.scrollTo(0,0);
 }
 async function unirme(){
   const c = partida(S.campSel), pj = $("#part-pj")?.value; if (!c || !pj) return;
@@ -1395,6 +1418,7 @@ document.addEventListener("click", async (ev) => {
     case "fac-borrar": confirmar(t, async () => { if (await borrar("dm_facciones", id, "Borrada. Los personajes que la usaban conservan sus datos.")){ S.facciones = S.facciones.filter(f => f.id !== id); S.verFac = null; } render(); }); break;
     // partidas
     case "camp-generar": generarCampana(); break;
+    case "camp-manual": crearManual(); break;
     case "camp-ver": S.campSel = id; S.spoilers = false; ir("#campanas"); window.scrollTo(0,0); break;
     case "camp-volver": S.campSel = null; render(); break;
     case "camp-borrar": confirmar(t, async () => { if (await borrar("dm_partidas", id, "Partida borrada.")){ S.partidas = S.partidas.filter(c => c.id !== id); S.participantes = S.participantes.filter(x => x.partida_id !== id); S.campSel = null; } render(); }); break;
