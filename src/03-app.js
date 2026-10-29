@@ -109,7 +109,9 @@ async function enviarAuth(){
   } else if (S.authMode === "registro"){
     const usuario = $("#a-usuario").value.trim();
     const { data, error } = await sb.auth.signUp({ email:correo, password:clave, options:{ data:{ usuario }, emailRedirectTo:vuelta } });
-    if (error) st.textContent = /registered/i.test(error.message) ? "Ese correo ya tiene cuenta. Pulsa «Entrar»." : error.message;
+    if (error) st.textContent = /registered/i.test(error.message) ? "Ese correo ya tiene cuenta. Pulsa «Entrar»."
+      : /rate limit|security purposes/i.test(error.message) ? "Se han enviado demasiados correos de confirmación en poco tiempo. Espera un rato y vuelve a intentarlo, o pide a quien administra la mesa que lo revise."
+      : error.message;
     else if (!data.session) st.innerHTML = "<b>¡Listo!</b> Te enviamos un correo para confirmar la cuenta. Ábrelo y vuelve aquí.";
   } else {
     const { error } = await sb.auth.resetPasswordForEmail(correo, { redirectTo:vuelta });
