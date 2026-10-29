@@ -24,10 +24,10 @@ La clave de Anthropic **nunca** está en el navegador. Vive como secreto de la f
 
 ## Puesta en marcha
 
-1. **Activar GitHub Pages.** En el repositorio, ve a *Settings → Pages → Build and deployment*. Elige *Deploy from a branch*, rama `main` y carpeta `/ (root)`. La web quedará en `https://fuladev.github.io/mesa-del-dm/`.
+1. **Activar GitHub Pages.** En el repositorio, ve a *Settings → Pages → Build and deployment*. Elige *Deploy from a branch*, rama `main` y carpeta `/ (root)`. La web quedará en `https://fuladev.github.io/Mesa-del-dm/`.
 2. **Configurar la URL en Supabase.** En el panel de Supabase ve a *Authentication → URL Configuration*:
-   - *Site URL*: `https://fuladev.github.io/mesa-del-dm/`
-   - *Redirect URLs*: añade `https://fuladev.github.io/mesa-del-dm/**`
+   - *Site URL*: `https://fuladev.github.io/Mesa-del-dm/`
+   - *Redirect URLs*: añade `https://fuladev.github.io/Mesa-del-dm/**`
 
    Sin esto, los enlaces de confirmación de correo y de cambio de contraseña llevan a una dirección equivocada.
 3. **Clave de Anthropic.** En *Edge Functions → Secrets*, crea `ANTHROPIC_API_KEY` con tu clave de [console.anthropic.com](https://console.anthropic.com). Se paga por uso. En la consola de Anthropic puedes poner un límite de gasto mensual para no llevarte sorpresas.
