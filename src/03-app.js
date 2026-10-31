@@ -631,6 +631,10 @@ function vJugar(){
   if (!c && mias.length){ c = mias[0]; S.playId = c.id; }
   if (!c) return `<section class="view"><h1>Jugar</h1><div class="empty"><h3>Únete primero a una partida</h3><p>Ve a Partidas, abre una y únete con uno o varios de tus personajes, o crea una nueva.</p><div class="row"><a class="btn primary" href="#campanas">Ir a Partidas</a><button class="btn gold" data-act="ejemplo">Cargar ejemplo</button></div></div></section>`;
   const humano = dmHumano(c), soyDM = humano && c.creador === S.me;
+  // En combate, cuando le toca a uno de tus personajes, pasas a hablar como él
+  const k = cb(c), act = actorActual(c);
+  if (act?.tipo === "pj"){ const clave = `${c.id}:${k.ronda}:${k.turno}`;
+    if (S.turnoVisto[c.id] !== clave){ S.turnoVisto[c.id] = clave; if (misParticipaciones(c.id).some(x => x.personaje_id === act.id)){ S.habla[c.id] = act.id; S.draft = ""; } } }
   const grupo = grupoDe(c.id), log = c.log || [], voces = vocesDe(c), voz = vozActual(c), puedo = voces.length > 0, otro = !humano && escribiendoOtro(c);
   const bloqueado = S.busy || otro || !puedo;
   const vacio = humano
@@ -651,8 +655,10 @@ function vJugar(){
         <div class="composer">
           ${!puedo ? `<p class="small">Estás mirando. Para participar, <a href="#campanas" data-act="camp-ver" data-id="${c.id}">únete con uno de tus personajes</a>.</p>` : `
           ${!humano && !log.length ? `<button class="btn primary" data-act="play-start" ${bloqueado?"disabled":""}>Empezar la aventura</button>` : ""}
+          ${combateBanner(c)}
+          ${misPG(c)}
           ${voces.length > 1 ? `<label class="field" style="max-width:320px"><span>Hablas como</span><select id="play-como">${voces.map(x=>`<option value="${x.v}" ${x.v===voz?"selected":""}>${esc(x.t)}</option>`).join("")}</select></label>` : ""}
-          ${voz === "dm" ? dmHerramientas(c, grupo, log) : ""}
+          ${voz === "dm" ? dmHerramientas(c, grupo, log) : voz ? formAtaque(c, voz) : ""}
           <textarea id="play-in" placeholder="${esc(ph)}" ${voz === "dm" ? `style="min-height:120px"` : ""} ${S.busy?"disabled":""}>${esc(S.draft||"")}</textarea>
           <div class="row" style="justify-content:space-between">
             <div class="row">${voz === "dm" ? "" : humano ? `
@@ -674,11 +680,14 @@ function vJugar(){
             <div class="hp">${puedoPG?`<button data-act="hp" data-id="${p.id}" data-d="-1" aria-label="Quitar 1 PG">−</button>`:""}<span class="mono">${act}/${d.pg}</span>${puedoPG?`<button data-act="hp" data-id="${p.id}" data-d="1" aria-label="Sumar 1 PG">+</button>`:""}</div>
             <div class="hpbar"><i style="width:${pct}%;background:${pct<=25?"var(--bad)":pct<=50?"var(--warn)":"var(--ok)"}"></i></div></div>`; }).join("") : `<p class="small muted">Sin personajes todavía.</p>`}
         </div>
+        ${soyDM ? panelCombate(c, grupo) : ""}
         ${soyDM ? guionHtml(c) : ""}
         ${trayHtml()}
         ${puedo || c.creador === S.me ? `<div class="panel">
           <h3>Opciones de la mesa</h3>
-          ${humano ? `<p class="small muted">Sin IA: ${esc(nombreUsuario(c.creador))} narra y pide las tiradas aquí mismo.${soyDM ? ` En el <a href="#asistente" data-act="ir-asistente" data-id="${c.id}">Asistente del DM</a> tienes la iniciativa y tus notas.` : ""}</p>` : `
+          ${humano ? `<p class="small muted">Sin IA: ${esc(nombreUsuario(c.creador))} narra, pide las tiradas y lleva el combate aquí mismo.${soyDM ? ` En el <a href="#asistente" data-act="ir-asistente" data-id="${c.id}">Asistente del DM</a> tienes tus notas privadas.` : ""}</p>` : ""}
+          ${c.creador === S.me ? `<label class="switch"><input type="checkbox" id="opt-fisicos" ${c.dadosFisicos ? "checked" : ""}> Dados físicos: tiráis dados de verdad, se escribe lo que sale y la app suma los modificadores de la ficha</label>` : c.dadosFisicos ? `<p class="small">Esta mesa usa <b>dados físicos</b>: al tirar, la app te pregunta qué ha salido y suma tus modificadores.</p>` : ""}
+          ${humano ? "" : `
           <label class="switch"><input type="checkbox" id="opt-aprendiz" ${c.aprendiz!==false?"checked":""}> Modo aprendiz: el DM explica las reglas</label>`}
           <div class="row">${humano ? "" : `<button class="btn sm" data-act="play-resumen" ${!bloqueado&&log.length>4?"":"disabled"}>Resumir historia hasta aquí</button>`}
           ${c.creador===S.me?`<span data-confirm="reset-${c.id}"><button class="btn sm ghost" data-act="play-reset" data-id="${c.id}" ${log.length?"":"disabled"}>Reiniciar partida</button></span>`:""}</div>
@@ -705,7 +714,8 @@ function dmHerramientas(c, grupo, log){
       <label class="field"><span>Por qué</span><input type="text" id="dt-motivo" placeholder="Ataque del esqueleto a Thorga"></label>
       <button class="btn sm" data-act="dm-tirar">Tirar y mostrar</button>
     </div>
-    <p class="small muted">La petición se añade a tu mensaje como un botón que el jugador pulsa para tirar. Las tiradas del DM se tiran aquí y todos ven el resultado.</p>
+    ${fisicaHtml(c, grupo)}
+    <p class="small muted">La petición se añade a tu mensaje como un botón que el jugador pulsa para tirar. Las tiradas del DM se ${c.dadosFisicos ? "escriben" : "tiran"} aquí y todos ven el resultado.</p>
   </div>`;
 }
 function guionHtml(c){
@@ -843,7 +853,7 @@ function dmPedirTirada(){
 async function dmTirar(){
   const c = partida(S.playId), not = $("#dt-not").value.trim(), motivo = $("#dt-motivo").value.trim();
   if (!c || !not) { toast("Escribe la tirada, por ejemplo 1d20+4."); return; }
-  let r; try { r = rollNotation(not); } catch (e) { toast(esc(e.message)); return; }
+  let r; try { r = tirarCon(c, not, "Tirada del DM" + (motivo ? ": " + motivo : "")); if (!r) return; } catch (e) { toast(esc(e.message)); return; }
   S.busy = true;
   try { await anadirLog(c, [{ r:"sys", t:`Tirada del DM — ${motivo ? motivo + " " : ""}${not}: ${r.detalle} = **${r.total}**${r.crit?" (¡20 natural!)":r.pifia?" (1 natural)":""}` }]); }
   catch (e) { toast(esc(errorTexto(e))); }

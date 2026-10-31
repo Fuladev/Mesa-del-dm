@@ -61,7 +61,8 @@ async function tirarPeticion(t){
   if (t.disabled) return;
   const not = t.dataset.roll, lab = t.dataset.label, cd = t.dataset.cd, key = t.dataset.key;
   const mode = /desventaja/i.test(lab) ? "desventaja" : /ventaja/i.test(lab) ? "ventaja" : "normal";
-  let r; try { r = rollNotation(not, mode); } catch (e) { toast(esc(e.message)); return; }
+  const c0 = partida(S.playId);
+  let r; try { r = tirarCon(c0, not, lab || not, mode); if (!r) return; } catch (e) { toast(esc(e.message)); return; }
   const linea = `Tirada de ${lab || not}: ${not} → ${r.detalle} = ${r.total}${r.crit?" (¡20 natural!)":r.pifia?" (1 natural)":""}`;
   const box = $("#play-in"); if (box){ box.value = (box.value ? box.value.trim() + "\n" : "") + linea; S.draft = box.value; }
   t.disabled = true; t.firstElementChild.textContent = "Tirado: " + r.total;
@@ -147,8 +148,8 @@ document.addEventListener("click", async (ev) => {
         catch (e) { toast(esc(e?.code ? iaMsg(e) : errorTexto(e))); }
         S.busy = false; render(); } break;
     case "play-reset": confirmar(t, async () => { const c = partida(id);
-        try { await guardar(sb.from("dm_partidas").update({ log:[], resumen:"", resumen_idx:0, usados:{}, pg_act:{}, escribiendo:null, escribiendo_ts:null }).eq("id", id), "Partida reiniciada.");
-          Object.assign(c, { log:[], resumen:"", resumenIdx:0, usados:{}, pgAct:{}, escribiendo:null }); } catch {}
+        try { await guardar(sb.from("dm_partidas").update({ log:[], resumen:"", resumen_idx:0, usados:{}, pg_act:{}, combate:{}, escribiendo:null, escribiendo_ts:null }).eq("id", id), "Partida reiniciada.");
+          Object.assign(c, { log:[], resumen:"", resumenIdx:0, usados:{}, pgAct:{}, combate:{}, escribiendo:null }); } catch {}
         render(); }, "Sí, reiniciar"); break;
     case "hp": cambiarPG(id, +t.dataset.d); break;
     case "die": tirarBandeja("1d" + t.dataset.n); break;

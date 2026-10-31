@@ -62,7 +62,7 @@ const S = {
   perfiles:{}, facciones:[], personajes:[], partidas:[], participantes:[], asesor:{},
   edit:null, verPj:null, editFac:null, verFac:null, campSel:null, playId:null, dmId:null,
   busy:false, err:"", trayMode:"normal", hist:[], camForm:null, draft:"",
-  pjFiltro:"mios", facFiltro:"todas", spoilers:false, pending:false, habla:{}
+  pjFiltro:"mios", facFiltro:"todas", spoilers:false, pending:false, habla:{}, turnoVisto:{}
 };
 
 /* ==================== búsquedas ==================== */
@@ -85,7 +85,7 @@ function facFromRow(r){ return { ...(r.datos || {}), id:r.id, autor:r.autor, tip
 function facToRow(f){ const { id, autor, tipo, nombre, actualizado, ...datos } = f; return { tipo, nombre, datos }; }
 const CAMPOS_CAMP = ["gancho","sinopsis","actos","pnjs","lugares","giros","final","consejosDM","ambiente","tono","duracion","nivel","jugadores","ejemplo"];
 function campDatos(c){ const d = {}; for (const k of CAMPOS_CAMP) if (c[k] !== undefined) d[k] = c[k]; return d; }
-function partFromRow(r){ return { ...(r.datos || {}), id:r.id, creador:r.creador, titulo:r.titulo, modo:r.modo, log:r.log || [], resumen:r.resumen || "", resumenIdx:r.resumen_idx || 0, usados:r.usados || {}, pgAct:r.pg_act || {}, aprendiz:r.aprendiz !== false, escribiendo:r.escribiendo, escribiendoTs:r.escribiendo_ts, actualizado:r.actualizado }; }
+function partFromRow(r){ return { ...(r.datos || {}), id:r.id, creador:r.creador, titulo:r.titulo, modo:r.modo, log:r.log || [], resumen:r.resumen || "", resumenIdx:r.resumen_idx || 0, usados:r.usados || {}, pgAct:r.pg_act || {}, combate:r.combate || {}, aprendiz:r.aprendiz !== false, escribiendo:r.escribiendo, escribiendoTs:r.escribiendo_ts, actualizado:r.actualizado }; }
 
 /* ==================== reglas de personaje ==================== */
 function razaInfo(pj){
