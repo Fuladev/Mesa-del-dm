@@ -393,12 +393,12 @@ function empezarCombate(c){
     : [{ r:"sys", t:`**¡Combate!** Orden de iniciativa: ${k.orden.map(e => `${e.nombre} ${iniTotal(e)}`).join(", ")}.` }, ...anuncioTurno(k)]);
 }
 function ordenarCombate(c){
+  let empieza = false;
   editarCombate(c, k => {
-    const empieza = k.turno < 0, actual = k.orden[k.turno]?.id;
+    delete k._empieza; empieza = k.turno < 0; const actual = k.orden[k.turno]?.id;
     k.orden = ordenarIni(k.orden);
     k.turno = empieza ? 0 : Math.max(0, k.orden.findIndex(e => e.id === actual));
-    k._empieza = empieza;
-  }, k => { const e = k._empieza; delete k._empieza; return e ? [{ r:"sys", t:`Orden de iniciativa: ${k.orden.map(x => `${x.nombre} ${iniTotal(x) ?? "–"}`).join(", ")}.` }, ...anuncioTurno(k)] : []; });
+  }, k => { return empieza ? [{ r:"sys", t:`Orden de iniciativa: ${k.orden.map(x => `${x.nombre} ${iniTotal(x) ?? "–"}`).join(", ")}.` }, ...anuncioTurno(k)] : []; });
 }
 function terminarCombate(c){
   const grupo = grupoDe(c.id), k0 = cb(c), caidos = k0.orden.filter(e => e.tipo === "enemigo" && +e.pg <= 0), calc = calcEncuentro(grupo, caidos);
@@ -414,6 +414,15 @@ async function conDano(c, objetivo, cantidad, cabecera){
   S.busy = false; render();
 }
 
+// Tras un ataque en su turno, el turno pasa solo al siguiente (lo hace la base de datos para que valga también para los jugadores)
+async function pasarTurnoTras(c, actorId){
+  if (!cb(c).activo || actorActual(c)?.id !== actorId) return;
+  try {
+    c.combate = await q(sb.rpc("dm_pasar_turno", { p:c.id, desde:actorId }));
+    const f = await q(sb.from("dm_partidas").select("log").eq("id", c.id).single()); c.log = f.log || c.log;
+  } catch (e) { toast(esc(errorTexto(e))); }
+}
+const avisoAtaque = (quien, r, ca, dmg, pasa) => toast((r.pifia || !(r.crit || r.total >= ca) ? `<b>${esc(quien)} falla:</b> ${r.total} contra CA ${ca}.` : `<b>¡${esc(quien)} impacta${r.crit ? " con un crítico" : ""}!</b> ${r.total} contra CA ${ca}.${dmg ? ` ${dmg.total} de daño.` : ""}`) + (pasa ? " Pasa el turno." : ""), 5000);
 async function ataqueEnemigo(c){
   const k = cb(c), e = k.orden.find(x => x.id === $("#cb-atk")?.value), p = pjById($("#cb-vic")?.value); if (!e || !p) return;
   const ca = derive(p).ca, not = `1d20${sgn(+e.at)}`;
@@ -427,6 +436,8 @@ async function ataqueEnemigo(c){
     let t = `${e.nombre} ataca a ${p.nombre}: ${lineaTirada(r)} contra CA ${ca}: ${impacta ? (r.crit ? "**¡crítico!**" : "**impacta**.") : "falla."}`;
     if (dmg){ const nuevo = await aplicarDano(c, p.id, Math.max(0, dmg.total)); t += ` Daño ${lineaTirada(dmg)}. ${trasDano(c, p.id, nuevo)}`; }
     await anadirLog(c, [{ r:"sys", t }]);
+    avisoAtaque(e.nombre, r, ca, dmg, actorActual(c)?.id === e.id);
+    await pasarTurnoTras(c, e.id);
   } catch (er) { toast(esc(errorTexto(er))); }
   S.busy = false; render();
 }
@@ -455,7 +466,8 @@ async function publicarAtaque(c, a, dmg){
     if (dmg){ const nuevo = await aplicarDano(c, e.id, Math.max(0, dmg.total)); t += `\nDaño: ${lineaTirada(dmg)}. ${trasDano(c, e.id, nuevo)}`; }
     S.atq = null;
     await publicar(c, p.id, t);
-    toast(a.impacta ? `<b>¡Impacta!</b> ${a.r.total} contra CA ${e.ca}.${dmg ? ` ${dmg.total} de daño.` : ""}` : `<b>Falla:</b> ${a.r.total} contra CA ${e.ca}.`, 5000);
+    avisoAtaque(p.nombre, a.r, +e.ca, dmg, actorActual(c)?.id === p.id);
+    await pasarTurnoTras(c, p.id);
   } catch (er) { toast(esc(errorTexto(er))); }
   S.busy = false; render();
 }
@@ -476,12 +488,13 @@ async function tiradaFisicaDM(c){
       const dd = +$("#pf-dano").value; if (!Number.isInteger(dd) || dd < 1){ toast("Escribe cuánto suman los dados de daño."); return; }
       const md = x === "MAG" ? 0 : modOf(derive(p).sc[car]), dm = Math.max(0, dd + md); t += ` Daño: ${dd} ${sgn(md) || "+0"} = **${dm}**.`;
       S.busy = true;
-      try { const nuevo = await aplicarDano(c, e.id, dm); await anadirLog(c, [{ r:"sys", t:t + " " + trasDano(c, e.id, nuevo) }]); } catch (er) { toast(esc(errorTexto(er))); }
+      try { const nuevo = await aplicarDano(c, e.id, dm); await anadirLog(c, [{ r:"sys", t:t + " " + trasDano(c, e.id, nuevo) }]); avisoAtaque(p.nombre, { total, crit:v === 20, pifia:v === 1 }, +e.ca, { total:dm }, actorActual(c)?.id === p.id); await pasarTurnoTras(c, p.id); } catch (er) { toast(esc(errorTexto(er))); }
       S.busy = false; render(); return;
     }
   } else if (cd) t += ` contra CD ${cd}: ${total >= cd ? "**éxito**." : "fallo."}`;
   S.busy = true;
-  try { await anadirLog(c, [{ r:"sys", t }]); } catch (er) { toast(esc(errorTexto(er))); }
+  try { await anadirLog(c, [{ r:"sys", t }]);
+    if (clase === "at"){ const e = cb(c).orden.find(o => o.id === $("#pf-obj")?.value); if (e){ avisoAtaque(p.nombre, { total, crit:false, pifia:v === 1 }, +e.ca, null, actorActual(c)?.id === p.id); await pasarTurnoTras(c, p.id); } } } catch (er) { toast(esc(errorTexto(er))); }
   S.busy = false; render();
 }
 
