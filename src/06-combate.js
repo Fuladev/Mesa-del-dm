@@ -284,6 +284,7 @@ function panelJugador(c, p){
     <div class="party-row" style="border:0"><div class="small muted">${esc(p.clase)} ${p.nivel || 1} · CA ${d.ca} · iniciativa ${fm(d.ini)} · competencia ${fm(d.prof)}</div>
       <div class="hp"><button data-act="hp" data-id="${p.id}" data-d="-1" aria-label="Quitar 1 PG">−</button><span class="mono">${a}/${max}</span><button data-act="hp" data-id="${p.id}" data-d="1" aria-label="Sumar 1 PG">+</button></div>
       <div class="hpbar"><i style="width:${pct}%;background:${pct<=25?"var(--bad)":pct<=50?"var(--warn)":"var(--ok)"}"></i></div></div>
+    ${xpBarHtml(p)}
     ${a <= 0 ? `<p class="small" style="color:var(--bad)"><b>A 0 PG:</b> en tu turno haz una salvación contra la muerte (abajo).</p>` : ""}
     <div class="mods">${AB.map(k => `<span><b>${k}</b> ${fm(modOf(d.sc[k]))}${d.sv.includes(k) ? "<i>salv. " + fm(modOf(d.sc[k]) + d.prof) + "</i>" : ""}</span>`).join("")}</div>
     <details><summary class="small">Habilidades</summary><div class="habs">${habs.map(x => `<span class="${x.comp ? "comp" : ""}">${x.h} <b class="mono">${fm(x.mod)}</b></span>`).join("")}</div></details>
@@ -306,8 +307,31 @@ function panelGrupoDM(c, grupo){
       return `<div class="party-row"><div><b>${esc(p.nombre)}</b><div class="small muted">${esc(nombreUsuario(p.dueno))} · ${esc(p.clase)} · CA ${d.ca} · ini ${fm(d.ini)}</div></div>
         <div class="hp"><button data-act="hp" data-id="${p.id}" data-d="-1" aria-label="Quitar 1 PG">−</button><span class="mono">${act}/${d.pg}</span><button data-act="hp" data-id="${p.id}" data-d="1" aria-label="Sumar 1 PG">+</button></div>
         <div class="hpbar"><i style="width:${pct}%;background:${pct<=25?"var(--bad)":pct<=50?"var(--warn)":"var(--ok)"}"></i></div>
-        <div class="estado-j small">${act <= 0 ? `<span class="chip warn">Inconsciente</span>` : ""}${mis.map(r => `<span class="chip warn">Esperando: ${esc(r.lab.replace(/\s*\([^)]*\)\s*$/, ""))}${r.cd ? " " + esc(r.cd) : ""}</span>`).join("")}${e && e.dado == null ? `<span class="chip warn">Falta su iniciativa</span>` : ""}${u ? `<div class="muted">Último: ${rich(u).replace(/<\/?p>/g, "")}</div>` : ""}</div></div>`; }).join("") : `<p class="small muted">Aún no hay personajes en la partida.</p>`}
+        <div class="estado-j">${xpBarHtml(p, true)}</div><div class="estado-j small">${act <= 0 ? `<span class="chip warn">Inconsciente</span>` : ""}${mis.map(r => `<span class="chip warn">Esperando: ${esc(r.lab.replace(/\s*\([^)]*\)\s*$/, ""))}${r.cd ? " " + esc(r.cd) : ""}</span>`).join("")}${e && e.dado == null ? `<span class="chip warn">Falta su iniciativa</span>` : ""}${u ? `<div class="muted">Último: ${rich(u).replace(/<\/?p>/g, "")}</div>` : ""}</div></div>`; }).join("") : `<p class="small muted">Aún no hay personajes en la partida.</p>`}
+    ${grupo.length ? `<details class="dar-xp"><summary class="small"><b>Dar experiencia</b> (misión, escena, buena idea…)</summary><div class="row">
+      <label class="field"><span>A</span><select id="xp-a">${grupo.length > 1 ? `<option value="*">Todo el grupo</option>` : ""}${grupo.map(p => `<option value="${p.id}">${esc(p.nombre)}</option>`).join("")}</select></label>
+      <label class="field" style="max-width:100px"><span>PX</span><input type="number" id="xp-n" min="1" max="100000" value="100" class="mono"></label>
+      <label class="field"><span>Motivo</span><input type="text" id="xp-motivo" placeholder="Misión cumplida"></label>
+      <label class="switch small"><input type="checkbox" id="xp-rep"> Repartir el total entre todos</label>
+      <button class="btn sm" data-act="cb-xp">Dar PX</button></div>
+      <p class="small muted">Con ${XP_NIVEL[1]} PX se llega a nivel 2 y con ${XP_NIVEL[2]} a nivel 3. Una misión pequeña suele dar lo mismo que un combate medio para el grupo. Al llegar al umbral, el personaje sube de nivel solo.</p></details>` : ""}
   </div>`;
+}
+// Reparte experiencia (la base de datos sube de nivel a quien llegue al umbral y lo anuncia en el chat)
+async function darExperiencia(c, pjIds, cantidad, motivo){
+  if (!pjIds.length || cantidad < 1) return;
+  const r = await q(sb.rpc("dm_dar_experiencia", { p:c.id, pjs:pjIds, cantidad, motivo:motivo || "" }));
+  for (const x of r || []){ const p = pjById(x.pj); if (p){ p.xp = x.xp; p.nivel = x.nivel; } if (x.nivel > x.antes) toast(`¡${esc(pjById(x.pj)?.nombre || "")} sube a nivel ${x.nivel}!`, 5000); }
+  const f = await q(sb.from("dm_partidas").select("log").eq("id", c.id).single()); c.log = f.log || c.log;
+}
+async function darExperienciaForm(c){
+  const v = $("#xp-a").value, ids = v === "*" ? grupoDe(c.id).map(p => p.id) : [v], n = Math.round(+$("#xp-n").value || 0);
+  if (n < 1){ toast("Escribe cuántos PX das."); return; }
+  const cada = $("#xp-rep").checked ? Math.floor(n / ids.length) : n;
+  if (cada < 1){ toast("Son muy pocos PX para repartir entre todos."); return; }
+  S.busy = true;
+  try { await darExperiencia(c, ids, cada, $("#xp-motivo").value.trim()); } catch (e) { toast(esc(errorTexto(e))); }
+  S.busy = false; render();
 }
 // Herramienta de reserva del DM: escribir el dado de un jugador que no tiene la app abierta
 function fisicaHtml(c, grupo){
@@ -403,7 +427,10 @@ function ordenarCombate(c){
 function terminarCombate(c){
   const grupo = grupoDe(c.id), k0 = cb(c), caidos = k0.orden.filter(e => e.tipo === "enemigo" && +e.pg <= 0), calc = calcEncuentro(grupo, caidos);
   editarCombate(c, k => { k.activo = false; k.orden = []; k.turno = -1; k.ronda = 1; },
-    k0.activo ? [{ r:"sys", t:`**Fin del combate.**${caidos.length ? ` Enemigos derrotados: ${caidos.map(e => e.nombre).join(", ")}. Experiencia: ${calc.base} PX (${calc.porPJ} por personaje).` : ""}` }] : []);
+    k0.activo ? [{ r:"sys", t:`**Fin del combate.**${caidos.length ? ` Enemigos derrotados: ${caidos.map(e => e.nombre).join(", ")}. Experiencia: ${calc.base} PX en total, ${calc.porPJ} por personaje.` : ""}` }] : [])
+    .then(async () => { if (!k0.activo || calc.porPJ < 1 || !grupo.length) return; S.busy = true;
+      try { await darExperiencia(c, grupo.map(p => p.id), calc.porPJ, "combate"); } catch (e) { toast(esc(errorTexto(e))); }
+      S.busy = false; render(); });
 }
 async function conDano(c, objetivo, cantidad, cabecera){
   S.busy = true;
@@ -532,6 +559,7 @@ document.addEventListener("click", (ev) => {
         const nom = pjById(obj)?.nombre || cb(c).orden.find(e => e.id === obj)?.nombre || "";
         conDano(c, obj, cura ? -n : n, cura ? `${nom} recupera ${n} PG.` : `${nom} recibe ${n} de daño.`); } break;
     case "cb-fisica": tiradaFisicaDM(c); break;
+    case "cb-xp": darExperienciaForm(c); break;
   }
 });
 document.addEventListener("change", (ev) => {
