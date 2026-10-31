@@ -255,7 +255,8 @@ function accionesJugador(c, pjId){
   if (a){ const e = k.orden.find(x => x.id === a.e);
     out.push(`<div class="accion mio"><div><b>¡${esc(pjById(a.pj)?.nombre || "")} impacta a ${esc(e?.nombre || "")}${a.r.crit ? " con un crítico" : ""}!</b> Tira el daño: <span class="mono">${esc(a.dn)}</span>${a.r.crit ? " (crítico: dados dobles)" : ""}.</div>
       <div class="row">${inputDado(`id="fa-dv" aria-label="Suma de los dados de daño"`, "suma de los dados")}<button class="btn sm primary" data-act="cb-dano-pj">Aplicar daño</button><button class="btn sm ghost" data-act="cb-atq-no">Cancelar</button></div></div>`);
-  } else if (k.activo && k.turno >= 0) out.push(formAtaque(c, pjId));
+  } else if (k.activo && k.turno >= 0){ const ya = ataqueEsteTurno(c, pjId);
+    out.push(ya ? `<div class="accion hecho"><div><b>Ya has atacado este turno.</b> ${rich(ya.split("\n").slice(-2).join(" ")).replace(/<\/?p>/g, "")}</div><span class="small muted">Espera a que el DM pase al siguiente turno.</span></div>` : formAtaque(c, pjId)); }
   return out.filter(Boolean).length ? `<div class="acciones">${out.join("")}</div>` : "";
 }
 // Formulario de ataque del jugador: la app usa su ficha, compara con la CA y aplica el daño
@@ -439,6 +440,13 @@ async function ataqueJugador(c){
   if (impacta && c.dadosFisicos){ S.atq = a; render(); $("#fa-dv")?.focus(); return; }
   publicarAtaque(c, a, impacta ? rollNotation(a.dn) : null);
 }
+// El último ataque de este personaje desde que empezó el turno actual (para no atacar dos veces y ver el resultado)
+function ataqueEsteTurno(c, pjId){
+  const log = c.log || []; let desde = 0;
+  for (let i = log.length - 1; i >= 0; i--) if (log[i].r === "sys" && /^\*\*(Ronda \d+ · turno de|¡Combate!)/.test(log[i].t)){ desde = i; break; }
+  for (let i = log.length - 1; i > desde; i--){ const m = log[i]; if (m.r === "user" && m.pj === pjId && /Ataque de .+ a .+: /.test(m.t)) return String(m.t); }
+  return "";
+}
 async function publicarAtaque(c, a, dmg){
   const p = pjById(a.pj), e = cb(c).orden.find(x => x.id === a.e); if (!p || !e) return;
   S.busy = true;
@@ -447,6 +455,7 @@ async function publicarAtaque(c, a, dmg){
     if (dmg){ const nuevo = await aplicarDano(c, e.id, Math.max(0, dmg.total)); t += `\nDaño: ${lineaTirada(dmg)}. ${trasDano(c, e.id, nuevo)}`; }
     S.atq = null;
     await publicar(c, p.id, t);
+    toast(a.impacta ? `<b>¡Impacta!</b> ${a.r.total} contra CA ${e.ca}.${dmg ? ` ${dmg.total} de daño.` : ""}` : `<b>Falla:</b> ${a.r.total} contra CA ${e.ca}.`, 5000);
   } catch (er) { toast(esc(errorTexto(er))); }
   S.busy = false; render();
 }

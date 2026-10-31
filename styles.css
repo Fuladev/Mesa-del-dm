@@ -302,3 +302,4 @@ td.mono,th.mono{text-align:center}
 .estado-j .muted{width:100%}
 .fisica .row{align-items:end;margin-top:6px}
 .combate .cb-add .dado-in{flex:0 1 90px;width:90px}
+.accion.hecho{border-left-color:var(--line);opacity:.9}
