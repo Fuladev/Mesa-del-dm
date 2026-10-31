@@ -284,3 +284,21 @@ td.mono,th.mono{text-align:center}
 .combate .cb-add{flex-wrap:wrap}
 .combate .cb-add select{flex:1 1 130px;min-width:0}
 .combate .calc{border-left:3px solid var(--accent);padding:6px 10px;border-radius:6px;background:var(--surface-2)}
+/* acciones del jugador */
+.acciones{display:grid;gap:8px}
+.accion{display:grid;gap:6px;border:1px solid var(--line);border-left:4px solid var(--warn);border-radius:10px;padding:8px 12px;background:var(--surface)}
+.accion.mio{border-left-color:var(--ok);background:var(--accent-soft)}
+.accion .row{align-items:end}
+.dado-in{width:120px;max-width:100%}
+.ficha-mesa .mods{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
+.ficha-mesa .mods span{display:grid;text-align:center;font-size:.85rem;border:1px solid var(--line);border-radius:8px;padding:4px}
+.ficha-mesa .mods i{font-style:normal;font-size:.72rem;color:var(--muted,inherit);opacity:.8}
+.ficha-mesa .habs{display:grid;grid-template-columns:1fr 1fr;gap:2px 10px;font-size:.82rem;margin-top:6px}
+.ficha-mesa .habs span{display:flex;justify-content:space-between}
+.ficha-mesa .habs .comp{font-weight:600}
+.ficha-mesa .tirada-libre{align-items:end}
+.ficha-mesa .tirada-libre select{max-width:100%}
+.estado-j{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+.estado-j .muted{width:100%}
+.fisica .row{align-items:end;margin-top:6px}
+.combate .cb-add .dado-in{flex:0 1 90px;width:90px}

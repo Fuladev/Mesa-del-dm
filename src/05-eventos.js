@@ -59,17 +59,16 @@ function tirarTry(not){
 }
 async function tirarPeticion(t){
   if (t.disabled) return;
-  const not = t.dataset.roll, lab = t.dataset.label, cd = t.dataset.cd, key = t.dataset.key;
-  const mode = /desventaja/i.test(lab) ? "desventaja" : /ventaja/i.test(lab) ? "ventaja" : "normal";
-  const c0 = partida(S.playId);
-  let r; try { r = tirarCon(c0, not, lab || not, mode); if (!r) return; } catch (e) { toast(esc(e.message)); return; }
-  const linea = `Tirada de ${lab || not}: ${not} → ${r.detalle} = ${r.total}${r.crit?" (¡20 natural!)":r.pifia?" (1 natural)":""}`;
-  const box = $("#play-in"); if (box){ box.value = (box.value ? box.value.trim() + "\n" : "") + linea; S.draft = box.value; }
-  t.disabled = true; t.firstElementChild.textContent = "Tirado: " + r.total;
-  toast(`<div class="small">${esc(lab||not)}${cd? " · "+esc(cd):""}</div><div class="mono">${r.total}</div><div class="small">${esc(r.detalle)}. Añadido a tu mensaje: pulsa Enviar cuando estéis listos.</div>`, 5000);
   const c = partida(S.playId); if (!c) return;
-  c.usados = { ...c.usados, [key]: String(r.total) };
-  try { const f = await q(sb.from("dm_partidas").select("usados").eq("id", c.id).single()); await q(sb.from("dm_partidas").update({ usados:{ ...(f.usados||{}), [key]:String(r.total) } }).eq("id", c.id)); } catch {}
+  const req = pendientesDe(c).find(r => r.key === t.dataset.key) || { key:t.dataset.key, not:t.dataset.roll, lab:t.dataset.label, cd:t.dataset.cd, pj:null };
+  if (req.pj && !esMio(req.pj.id)){ toast(`Esta tirada es para ${esc(req.pj.nombre)}: la hace ${esc(nombreUsuario(req.pj.dueno))}.`); return; }
+  if (c.dadosFisicos){
+    const inp = $(`[data-pet-val="${req.key}"]`);
+    if (inp){ inp.scrollIntoView({ block:"center" }); inp.focus(); }
+    toast(inp ? "Tira tus dados y escribe en la tarjeta lo que ha salido." : "Elige primero en «Hablas como» al personaje que tiene que tirar.");
+    return;
+  }
+  resolverPeticion(c, req);
 }
 function asesorAct(fn){ const c = partida(S.dmId), a = c && S.asesor[c.id]; if (!a) return; a.ini ||= []; fn(a, c); guardarAsesor(c.id, true); render(); }
 

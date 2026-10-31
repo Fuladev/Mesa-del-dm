@@ -634,7 +634,7 @@ function vJugar(){
   // En combate, cuando le toca a uno de tus personajes, pasas a hablar como él
   const k = cb(c), act = actorActual(c);
   if (act?.tipo === "pj"){ const clave = `${c.id}:${k.ronda}:${k.turno}`;
-    if (S.turnoVisto[c.id] !== clave){ S.turnoVisto[c.id] = clave; if (misParticipaciones(c.id).some(x => x.personaje_id === act.id)){ S.habla[c.id] = act.id; S.draft = ""; } } }
+    if (S.turnoVisto[c.id] !== clave){ S.turnoVisto[c.id] = clave; if (vozActual(c) !== "dm" && misParticipaciones(c.id).some(x => x.personaje_id === act.id)){ S.habla[c.id] = act.id; S.draft = ""; } } }
   const grupo = grupoDe(c.id), log = c.log || [], voces = vocesDe(c), voz = vozActual(c), puedo = voces.length > 0, otro = !humano && escribiendoOtro(c);
   const bloqueado = S.busy || otro || !puedo;
   const vacio = humano
@@ -655,10 +655,10 @@ function vJugar(){
         <div class="composer">
           ${!puedo ? `<p class="small">Estás mirando. Para participar, <a href="#campanas" data-act="camp-ver" data-id="${c.id}">únete con uno de tus personajes</a>.</p>` : `
           ${!humano && !log.length ? `<button class="btn primary" data-act="play-start" ${bloqueado?"disabled":""}>Empezar la aventura</button>` : ""}
-          ${combateBanner(c)}
-          ${misPG(c)}
+          ${combateBanner(c, voz)}
+          ${voz === "dm" ? "" : misPG(c)}
           ${voces.length > 1 ? `<label class="field" style="max-width:320px"><span>Hablas como</span><select id="play-como">${voces.map(x=>`<option value="${x.v}" ${x.v===voz?"selected":""}>${esc(x.t)}</option>`).join("")}</select></label>` : ""}
-          ${voz === "dm" ? dmHerramientas(c, grupo, log) : voz ? formAtaque(c, voz) : ""}
+          ${voz === "dm" ? dmHerramientas(c, grupo, log) : voz && voz !== "grupo" ? accionesJugador(c, voz) : ""}
           <textarea id="play-in" placeholder="${esc(ph)}" ${voz === "dm" ? `style="min-height:120px"` : ""} ${S.busy?"disabled":""}>${esc(S.draft||"")}</textarea>
           <div class="row" style="justify-content:space-between">
             <div class="row">${voz === "dm" ? "" : humano ? `
@@ -673,20 +673,22 @@ function vJugar(){
         </div>
       </div>
       <aside class="side">
+        ${voz === "dm" ? panelGrupoDM(c, grupo) : `
+        ${voz && voz !== "grupo" ? panelJugador(c, pjById(voz)) : ""}
         <div class="panel">
           <div class="panel-h"><h3>El grupo</h3><button class="btn sm ghost" data-act="camp-ver" data-id="${c.id}">Jugadores</button></div>
-          ${grupo.length ? grupo.map(p => { const d = derive(p), act = c.pgAct?.[p.id] ?? d.pg, pct = Math.max(0, Math.min(100, act/d.pg*100)), puedoPG = p.dueno === S.me || c.creador === S.me;
+          ${grupo.length ? grupo.map(p => { const d = derive(p), act = c.pgAct?.[p.id] ?? d.pg, pct = Math.max(0, Math.min(100, act/d.pg*100)), puedoPG = p.dueno === S.me || (!humano && c.creador === S.me);
             return `<div class="party-row"><div><b>${esc(p.nombre)}</b><div class="small muted">${esc(nombreUsuario(p.dueno))} · ${esc(p.clase)} · CA ${d.ca} · ini ${fm(d.ini)}</div></div>
             <div class="hp">${puedoPG?`<button data-act="hp" data-id="${p.id}" data-d="-1" aria-label="Quitar 1 PG">−</button>`:""}<span class="mono">${act}/${d.pg}</span>${puedoPG?`<button data-act="hp" data-id="${p.id}" data-d="1" aria-label="Sumar 1 PG">+</button>`:""}</div>
             <div class="hpbar"><i style="width:${pct}%;background:${pct<=25?"var(--bad)":pct<=50?"var(--warn)":"var(--ok)"}"></i></div></div>`; }).join("") : `<p class="small muted">Sin personajes todavía.</p>`}
-        </div>
-        ${soyDM ? panelCombate(c, grupo) : ""}
-        ${soyDM ? guionHtml(c) : ""}
+        </div>`}
+        ${voz === "dm" ? panelCombate(c, grupo) : ""}
+        ${voz === "dm" ? guionHtml(c) : ""}
         ${trayHtml()}
-        ${puedo || c.creador === S.me ? `<div class="panel">
+        ${(!humano && (puedo || c.creador === S.me)) || voz === "dm" ? `<div class="panel">
           <h3>Opciones de la mesa</h3>
           ${humano ? `<p class="small muted">Sin IA: ${esc(nombreUsuario(c.creador))} narra, pide las tiradas y lleva el combate aquí mismo.${soyDM ? ` En el <a href="#asistente" data-act="ir-asistente" data-id="${c.id}">Asistente del DM</a> tienes tus notas privadas.` : ""}</p>` : ""}
-          ${c.creador === S.me ? `<label class="switch"><input type="checkbox" id="opt-fisicos" ${c.dadosFisicos ? "checked" : ""}> Dados físicos: tiráis dados de verdad, se escribe lo que sale y la app suma los modificadores de la ficha</label>` : c.dadosFisicos ? `<p class="small">Esta mesa usa <b>dados físicos</b>: al tirar, la app te pregunta qué ha salido y suma tus modificadores.</p>` : ""}
+          ${c.creador === S.me ? `<label class="switch"><input type="checkbox" id="opt-fisicos" ${c.dadosFisicos ? "checked" : ""}> Dados físicos: tiráis dados de verdad, se escribe lo que sale y la app suma los modificadores de la ficha</label>` : c.dadosFisicos ? `<p class="small">Esta mesa usa <b>dados físicos</b>: escribe lo que sale en tus dados y la app suma tus modificadores.</p>` : ""}
           ${humano ? "" : `
           <label class="switch"><input type="checkbox" id="opt-aprendiz" ${c.aprendiz!==false?"checked":""}> Modo aprendiz: el DM explica las reglas</label>`}
           <div class="row">${humano ? "" : `<button class="btn sm" data-act="play-resumen" ${!bloqueado&&log.length>4?"":"disabled"}>Resumir historia hasta aquí</button>`}
@@ -702,20 +704,19 @@ function dmHerramientas(c, grupo, log){
   return `<div class="dm-tools">
     ${!log.length && c.gancho ? `<div class="row"><button class="btn sm gold" data-act="dm-gancho">Empezar con el gancho de la partida</button></div>` : ""}
     <div class="row">
-      <label class="field"><span>Pedir tirada a</span><select id="pt-pj">${grupo.map(p=>`<option value="${p.id}">${esc(p.nombre)}</option>`).join("")}</select></label>
-      <label class="field"><span>Característica</span><select id="pt-car">${AB.map(k=>`<option value="${k}">${AB_N[k]}</option>`).join("")}</select></label>
-      <label class="field"><span>Motivo</span><input type="text" id="pt-motivo" placeholder="Percepción"></label>
+      <label class="field"><span>Pedir tirada a</span><select id="pt-pj">${grupo.length > 1 ? `<option value="*">Todo el grupo</option>` : ""}${grupo.map(p=>`<option value="${p.id}">${esc(p.nombre)}</option>`).join("")}</select></label>
+      <label class="field"><span>Tirada</span><select id="pt-tipo">${opcionesTirada()}</select></label>
       <label class="field" style="max-width:90px"><span>CD</span><input type="number" id="pt-cd" min="1" max="30" value="12"></label>
-      <label class="switch small"><input type="checkbox" id="pt-comp"> Competente</label>
       <button class="btn sm" data-act="dm-pedir" ${grupo.length?"":"disabled"}>Añadir petición</button>
     </div>
     <div class="row">
       <label class="field"><span>Tirada del DM</span><input type="text" id="dt-not" placeholder="1d20+4" class="mono"></label>
       <label class="field"><span>Por qué</span><input type="text" id="dt-motivo" placeholder="Ataque del esqueleto a Thorga"></label>
+      ${c.dadosFisicos ? `<label class="field" style="max-width:110px"><span>Tus dados</span><input type="number" id="dt-val" class="mono dado-in" placeholder="suma"></label>` : ""}
       <button class="btn sm" data-act="dm-tirar">Tirar y mostrar</button>
     </div>
     ${fisicaHtml(c, grupo)}
-    <p class="small muted">La petición se añade a tu mensaje como un botón que el jugador pulsa para tirar. Las tiradas del DM se ${c.dadosFisicos ? "escriben" : "tiran"} aquí y todos ven el resultado.</p>
+    <p class="small muted">La app calcula el bonificador con la ficha (competencias incluidas). La petición se añade a tu mensaje y, al enviarlo, al jugador le aparece una tarjeta para ${c.dadosFisicos ? "escribir lo que saca en sus dados" : "tirar"}; tú verás el resultado en el chat y en «Los jugadores». Las tiradas del DM se ${c.dadosFisicos ? "escriben" : "tiran"} aquí y todos ven el resultado.</p>
   </div>`;
 }
 function guionHtml(c){
@@ -844,16 +845,15 @@ async function enviarHumano(texto){
   S.busy = false; render();
 }
 function dmPedirTirada(){
-  const p = pjById($("#pt-pj")?.value); if (!p) return;
-  const k = $("#pt-car").value, d = derive(p), comp = $("#pt-comp").checked, cd = +$("#pt-cd").value || 10;
-  const mod = modOf(d.sc[k]) + (comp ? d.prof : 0), motivo = $("#pt-motivo").value.trim() || AB_N[k];
-  const tag = `[[tirada: 1d20${mod ? (mod > 0 ? "+" : "-") + Math.abs(mod) : ""} | ${motivo} (${p.nombre}) | CD ${cd}]]`;
+  const c = partida(S.playId), v = $("#pt-pj")?.value, pjs = v === "*" ? grupoDe(c.id) : [pjById(v)].filter(Boolean); if (!pjs.length) return;
+  const tipo = $("#pt-tipo").value, cd = +$("#pt-cd").value || 10;
+  const tag = pjs.map(p => { const { mod, nombre } = modTirada(p, tipo); return `[[tirada: 1d20${mod ? (mod > 0 ? "+" : "-") + Math.abs(mod) : ""} | ${nombre} (${p.nombre}) | CD ${cd}]]`; }).join("\n");
   const box = $("#play-in"); box.value = (box.value.trim() ? box.value.trim() + "\n\n" : "") + tag; S.draft = box.value; box.focus();
 }
 async function dmTirar(){
   const c = partida(S.playId), not = $("#dt-not").value.trim(), motivo = $("#dt-motivo").value.trim();
   if (!c || !not) { toast("Escribe la tirada, por ejemplo 1d20+4."); return; }
-  let r; try { r = tirarCon(c, not, "Tirada del DM" + (motivo ? ": " + motivo : "")); if (!r) return; } catch (e) { toast(esc(e.message)); return; }
+  let r; try { r = tirarCon(c, not, "Tirada del DM" + (motivo ? ": " + motivo : ""), "normal", $("#dt-val")?.value); } catch (e) { toast(esc(e.message)); return; }
   S.busy = true;
   try { await anadirLog(c, [{ r:"sys", t:`Tirada del DM — ${motivo ? motivo + " " : ""}${not}: ${r.detalle} = **${r.total}**${r.crit?" (¡20 natural!)":r.pifia?" (1 natural)":""}` }]); }
   catch (e) { toast(esc(errorTexto(e))); }
