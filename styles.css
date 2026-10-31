@@ -303,3 +303,10 @@ td.mono,th.mono{text-align:center}
 .fisica .row{align-items:end;margin-top:6px}
 .combate .cb-add .dado-in{flex:0 1 90px;width:90px}
 .accion.hecho{border-left-color:var(--line);opacity:.9}
+/* experiencia */
+.xpbar-w{display:grid;gap:3px}
+.xp-h{display:flex;justify-content:space-between;gap:8px}
+.xpbar{height:7px;background:var(--surface-2);border-radius:4px;overflow:hidden}
+.xpbar>i{display:block;height:100%;background:var(--gold,#8E6A1E)}
+.dar-xp .row{align-items:end;margin-top:6px}
+.estado-j .xpbar-w{width:100%}

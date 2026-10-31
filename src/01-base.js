@@ -109,6 +109,20 @@ function derive(pj){
   if (c.ca === "monk"){ caAuto = 10 + des + modOf(sc.SAB); caTxt = "10 + DES + SAB (defensa sin armadura)"; }
   return { sc, pg, ca: pj.ca ? +pj.ca : caAuto, caTxt: pj.ca ? "fijada a mano según tu armadura" : caTxt, prof: prof(lvl), ini: des, vel: r.v || 30, sv: c.sv || [], dado: c.d, raza: r };
 }
+// Experiencia (SRD 5.1): PX necesarios para cada nivel
+const XP_NIVEL = [0,300,900,2700,6500,14000,23000,34000,48000,64000,85000,100000,120000,140000,165000,195000,225000,265000,305000,355000];
+function xpInfo(p){
+  const xp = Math.max(0, +p.xp || 0), nivel = Math.min(20, Math.max(1, +p.nivel || 1));
+  if (nivel >= 20) return { xp, nivel, desde:XP_NIVEL[19], hasta:null, pct:100, falta:0 };
+  const desde = XP_NIVEL[nivel - 1], hasta = XP_NIVEL[nivel], pct = Math.max(0, Math.min(100, (xp - desde) / (hasta - desde) * 100));
+  return { xp, nivel, desde, hasta, pct, falta:Math.max(0, hasta - xp) };
+}
+function xpBarHtml(p, corto){
+  const x = xpInfo(p);
+  return `<div class="xpbar-w" title="${x.xp} PX"><div class="xp-h small"><span>Nivel ${x.nivel}</span><span class="mono">${x.hasta ? `${x.xp} / ${x.hasta} PX` : `${x.xp} PX · nivel máximo`}</span></div>
+    <div class="xpbar" role="progressbar" aria-label="Experiencia hacia el nivel ${x.nivel + 1}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(x.pct)}"><i style="width:${x.pct}%"></i></div>
+    ${corto || !x.hasta ? "" : `<span class="small muted">Te faltan ${x.falta} PX para el nivel ${x.nivel + 1}.</span>`}</div>`;
+}
 // Avisos de fichas que perjudican al jugador sin que se dé cuenta
 const SIN_ARMADURA = ["Mago","Hechicero","Monje","Bárbaro"];
 function avisosPJ(p){

@@ -109,6 +109,20 @@ function derive(pj){
   if (c.ca === "monk"){ caAuto = 10 + des + modOf(sc.SAB); caTxt = "10 + DES + SAB (defensa sin armadura)"; }
   return { sc, pg, ca: pj.ca ? +pj.ca : caAuto, caTxt: pj.ca ? "fijada a mano según tu armadura" : caTxt, prof: prof(lvl), ini: des, vel: r.v || 30, sv: c.sv || [], dado: c.d, raza: r };
 }
+// Experiencia (SRD 5.1): PX necesarios para cada nivel
+const XP_NIVEL = [0,300,900,2700,6500,14000,23000,34000,48000,64000,85000,100000,120000,140000,165000,195000,225000,265000,305000,355000];
+function xpInfo(p){
+  const xp = Math.max(0, +p.xp || 0), nivel = Math.min(20, Math.max(1, +p.nivel || 1));
+  if (nivel >= 20) return { xp, nivel, desde:XP_NIVEL[19], hasta:null, pct:100, falta:0 };
+  const desde = XP_NIVEL[nivel - 1], hasta = XP_NIVEL[nivel], pct = Math.max(0, Math.min(100, (xp - desde) / (hasta - desde) * 100));
+  return { xp, nivel, desde, hasta, pct, falta:Math.max(0, hasta - xp) };
+}
+function xpBarHtml(p, corto){
+  const x = xpInfo(p);
+  return `<div class="xpbar-w" title="${x.xp} PX"><div class="xp-h small"><span>Nivel ${x.nivel}</span><span class="mono">${x.hasta ? `${x.xp} / ${x.hasta} PX` : `${x.xp} PX · nivel máximo`}</span></div>
+    <div class="xpbar" role="progressbar" aria-label="Experiencia hacia el nivel ${x.nivel + 1}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(x.pct)}"><i style="width:${x.pct}%"></i></div>
+    ${corto || !x.hasta ? "" : `<span class="small muted">Te faltan ${x.falta} PX para el nivel ${x.nivel + 1}.</span>`}</div>`;
+}
 // Avisos de fichas que perjudican al jugador sin que se dé cuenta
 const SIN_ARMADURA = ["Mago","Hechicero","Monje","Bárbaro"];
 function avisosPJ(p){
@@ -646,6 +660,7 @@ function cardPJ(p){
   return `<article class="pj">
     <div class="pj-h"><div><h3>${esc(p.nombre || "Sin nombre")}</h3><div class="small muted">${esc(d.raza.nombre)} · ${esc(p.clase)} · nivel ${p.nivel}${fac?` · ${esc(fac.nombre)}`:""}</div></div>${ownerChip(p.dueno)}</div>
     <div class="stats">${AB.map(k=>`<div class="stat"><span class="k">${k}</span><span class="m">${fm(modOf(d.sc[k]))}</span><span class="s">${d.sc[k]}</span></div>`).join("")}</div>
+    ${xpBarHtml(p, true)}
     <div class="chips"><span class="chip acc">PG ${d.pg}</span><span class="chip acc">CA ${d.ca}</span><span class="chip">Competencia ${fm(d.prof)}</span><span class="chip">Velocidad ${d.vel} pies</span>${nAv?`<span class="chip warn">Revisa la ficha (${nAv} aviso${nAv===1?"":"s"})</span>`:""}</div>
     ${p.historia?`<p class="small muted">${esc(p.historia.slice(0,160))}${p.historia.length>160?"…":""}</p>`:""}
     <div class="row">${mio ? `<button class="btn sm" data-act="pj-editar" data-id="${p.id}">Ver y editar</button><span data-confirm="${p.id}"><button class="btn sm ghost" data-act="pj-borrar" data-id="${p.id}">Borrar</button></span>` : `<button class="btn sm" data-act="pj-ver" data-id="${p.id}">Ver ficha</button>`}</div>
@@ -657,7 +672,7 @@ function vFicha(p){
   return `<section class="view">
     <div class="panel-h"><div style="display:grid;gap:6px"><span class="label">${esc(d.raza.nombre)} · ${esc(p.clase)} · nivel ${p.nivel}</span><h1>${esc(p.nombre)}</h1>${ownerChip(p.dueno)}</div><button class="btn ghost" data-act="pj-volver">Volver</button></div>
     <div class="panel"><div class="stats">${AB.map(k=>`<div class="stat"><span class="k">${k}</span><span class="m">${fm(modOf(d.sc[k]))}</span><span class="s">${d.sc[k]}</span></div>`).join("")}</div>
-    <div class="chips"><span class="chip acc">PG ${d.pg}</span><span class="chip acc">CA ${d.ca}</span><span class="chip">Iniciativa ${fm(d.ini)}</span><span class="chip">Competencia ${fm(d.prof)}</span><span class="chip">Velocidad ${d.vel} pies</span></div>${avisosHtml(p)}</div>
+    <div class="chips"><span class="chip acc">PG ${d.pg}</span><span class="chip acc">CA ${d.ca}</span><span class="chip">Iniciativa ${fm(d.ini)}</span><span class="chip">Competencia ${fm(d.prof)}</span><span class="chip">Velocidad ${d.vel} pies</span></div>${xpBarHtml(p)}${avisosHtml(p)}</div>
     <div class="panel"><dl class="kv">${kv.map(([k,v])=>`<dt>${k}</dt><dd>${esc(v)}</dd>`).join("")}</dl></div>
   </section>`;
 }
@@ -766,6 +781,7 @@ async function guardarPJ(){
   leerForm(); const p = S.edit;
   if (!p.nombre.trim()){ toast("Ponle un nombre a tu personaje."); $("#f-nombre")?.focus(); return; }
   if (p.raza_id){ const r = razaInfo(p); p.razaSnap = { nombre:r.nombre, b:r.b, v:r.v, t:(r.t||"").slice(0,300) }; } else delete p.razaSnap;
+  const actual = p.id && pjById(p.id); if (actual && (+actual.xp || 0) > (+p.xp || 0)){ p.xp = actual.xp; p.nivel = Math.max(+p.nivel || 1, +actual.nivel || 1); }
   const row = pjToRow(p);
   S.busy = true; render();
   try {
@@ -1694,6 +1710,7 @@ function panelJugador(c, p){
     <div class="party-row" style="border:0"><div class="small muted">${esc(p.clase)} ${p.nivel || 1} · CA ${d.ca} · iniciativa ${fm(d.ini)} · competencia ${fm(d.prof)}</div>
       <div class="hp"><button data-act="hp" data-id="${p.id}" data-d="-1" aria-label="Quitar 1 PG">−</button><span class="mono">${a}/${max}</span><button data-act="hp" data-id="${p.id}" data-d="1" aria-label="Sumar 1 PG">+</button></div>
       <div class="hpbar"><i style="width:${pct}%;background:${pct<=25?"var(--bad)":pct<=50?"var(--warn)":"var(--ok)"}"></i></div></div>
+    ${xpBarHtml(p)}
     ${a <= 0 ? `<p class="small" style="color:var(--bad)"><b>A 0 PG:</b> en tu turno haz una salvación contra la muerte (abajo).</p>` : ""}
     <div class="mods">${AB.map(k => `<span><b>${k}</b> ${fm(modOf(d.sc[k]))}${d.sv.includes(k) ? "<i>salv. " + fm(modOf(d.sc[k]) + d.prof) + "</i>" : ""}</span>`).join("")}</div>
     <details><summary class="small">Habilidades</summary><div class="habs">${habs.map(x => `<span class="${x.comp ? "comp" : ""}">${x.h} <b class="mono">${fm(x.mod)}</b></span>`).join("")}</div></details>
@@ -1716,8 +1733,31 @@ function panelGrupoDM(c, grupo){
       return `<div class="party-row"><div><b>${esc(p.nombre)}</b><div class="small muted">${esc(nombreUsuario(p.dueno))} · ${esc(p.clase)} · CA ${d.ca} · ini ${fm(d.ini)}</div></div>
         <div class="hp"><button data-act="hp" data-id="${p.id}" data-d="-1" aria-label="Quitar 1 PG">−</button><span class="mono">${act}/${d.pg}</span><button data-act="hp" data-id="${p.id}" data-d="1" aria-label="Sumar 1 PG">+</button></div>
         <div class="hpbar"><i style="width:${pct}%;background:${pct<=25?"var(--bad)":pct<=50?"var(--warn)":"var(--ok)"}"></i></div>
-        <div class="estado-j small">${act <= 0 ? `<span class="chip warn">Inconsciente</span>` : ""}${mis.map(r => `<span class="chip warn">Esperando: ${esc(r.lab.replace(/\s*\([^)]*\)\s*$/, ""))}${r.cd ? " " + esc(r.cd) : ""}</span>`).join("")}${e && e.dado == null ? `<span class="chip warn">Falta su iniciativa</span>` : ""}${u ? `<div class="muted">Último: ${rich(u).replace(/<\/?p>/g, "")}</div>` : ""}</div></div>`; }).join("") : `<p class="small muted">Aún no hay personajes en la partida.</p>`}
+        <div class="estado-j">${xpBarHtml(p, true)}</div><div class="estado-j small">${act <= 0 ? `<span class="chip warn">Inconsciente</span>` : ""}${mis.map(r => `<span class="chip warn">Esperando: ${esc(r.lab.replace(/\s*\([^)]*\)\s*$/, ""))}${r.cd ? " " + esc(r.cd) : ""}</span>`).join("")}${e && e.dado == null ? `<span class="chip warn">Falta su iniciativa</span>` : ""}${u ? `<div class="muted">Último: ${rich(u).replace(/<\/?p>/g, "")}</div>` : ""}</div></div>`; }).join("") : `<p class="small muted">Aún no hay personajes en la partida.</p>`}
+    ${grupo.length ? `<details class="dar-xp"><summary class="small"><b>Dar experiencia</b> (misión, escena, buena idea…)</summary><div class="row">
+      <label class="field"><span>A</span><select id="xp-a">${grupo.length > 1 ? `<option value="*">Todo el grupo</option>` : ""}${grupo.map(p => `<option value="${p.id}">${esc(p.nombre)}</option>`).join("")}</select></label>
+      <label class="field" style="max-width:100px"><span>PX</span><input type="number" id="xp-n" min="1" max="100000" value="100" class="mono"></label>
+      <label class="field"><span>Motivo</span><input type="text" id="xp-motivo" placeholder="Misión cumplida"></label>
+      <label class="switch small"><input type="checkbox" id="xp-rep"> Repartir el total entre todos</label>
+      <button class="btn sm" data-act="cb-xp">Dar PX</button></div>
+      <p class="small muted">Con ${XP_NIVEL[1]} PX se llega a nivel 2 y con ${XP_NIVEL[2]} a nivel 3. Una misión pequeña suele dar lo mismo que un combate medio para el grupo. Al llegar al umbral, el personaje sube de nivel solo.</p></details>` : ""}
   </div>`;
+}
+// Reparte experiencia (la base de datos sube de nivel a quien llegue al umbral y lo anuncia en el chat)
+async function darExperiencia(c, pjIds, cantidad, motivo){
+  if (!pjIds.length || cantidad < 1) return;
+  const r = await q(sb.rpc("dm_dar_experiencia", { p:c.id, pjs:pjIds, cantidad, motivo:motivo || "" }));
+  for (const x of r || []){ const p = pjById(x.pj); if (p){ p.xp = x.xp; p.nivel = x.nivel; } if (x.nivel > x.antes) toast(`¡${esc(pjById(x.pj)?.nombre || "")} sube a nivel ${x.nivel}!`, 5000); }
+  const f = await q(sb.from("dm_partidas").select("log").eq("id", c.id).single()); c.log = f.log || c.log;
+}
+async function darExperienciaForm(c){
+  const v = $("#xp-a").value, ids = v === "*" ? grupoDe(c.id).map(p => p.id) : [v], n = Math.round(+$("#xp-n").value || 0);
+  if (n < 1){ toast("Escribe cuántos PX das."); return; }
+  const cada = $("#xp-rep").checked ? Math.floor(n / ids.length) : n;
+  if (cada < 1){ toast("Son muy pocos PX para repartir entre todos."); return; }
+  S.busy = true;
+  try { await darExperiencia(c, ids, cada, $("#xp-motivo").value.trim()); } catch (e) { toast(esc(errorTexto(e))); }
+  S.busy = false; render();
 }
 // Herramienta de reserva del DM: escribir el dado de un jugador que no tiene la app abierta
 function fisicaHtml(c, grupo){
@@ -1813,7 +1853,10 @@ function ordenarCombate(c){
 function terminarCombate(c){
   const grupo = grupoDe(c.id), k0 = cb(c), caidos = k0.orden.filter(e => e.tipo === "enemigo" && +e.pg <= 0), calc = calcEncuentro(grupo, caidos);
   editarCombate(c, k => { k.activo = false; k.orden = []; k.turno = -1; k.ronda = 1; },
-    k0.activo ? [{ r:"sys", t:`**Fin del combate.**${caidos.length ? ` Enemigos derrotados: ${caidos.map(e => e.nombre).join(", ")}. Experiencia: ${calc.base} PX (${calc.porPJ} por personaje).` : ""}` }] : []);
+    k0.activo ? [{ r:"sys", t:`**Fin del combate.**${caidos.length ? ` Enemigos derrotados: ${caidos.map(e => e.nombre).join(", ")}. Experiencia: ${calc.base} PX en total, ${calc.porPJ} por personaje.` : ""}` }] : [])
+    .then(async () => { if (!k0.activo || calc.porPJ < 1 || !grupo.length) return; S.busy = true;
+      try { await darExperiencia(c, grupo.map(p => p.id), calc.porPJ, "combate"); } catch (e) { toast(esc(errorTexto(e))); }
+      S.busy = false; render(); });
 }
 async function conDano(c, objetivo, cantidad, cabecera){
   S.busy = true;
@@ -1942,6 +1985,7 @@ document.addEventListener("click", (ev) => {
         const nom = pjById(obj)?.nombre || cb(c).orden.find(e => e.id === obj)?.nombre || "";
         conDano(c, obj, cura ? -n : n, cura ? `${nom} recupera ${n} PG.` : `${nom} recibe ${n} de daño.`); } break;
     case "cb-fisica": tiradaFisicaDM(c); break;
+    case "cb-xp": darExperienciaForm(c); break;
   }
 });
 document.addEventListener("change", (ev) => {

@@ -211,6 +211,7 @@ function cardPJ(p){
   return `<article class="pj">
     <div class="pj-h"><div><h3>${esc(p.nombre || "Sin nombre")}</h3><div class="small muted">${esc(d.raza.nombre)} · ${esc(p.clase)} · nivel ${p.nivel}${fac?` · ${esc(fac.nombre)}`:""}</div></div>${ownerChip(p.dueno)}</div>
     <div class="stats">${AB.map(k=>`<div class="stat"><span class="k">${k}</span><span class="m">${fm(modOf(d.sc[k]))}</span><span class="s">${d.sc[k]}</span></div>`).join("")}</div>
+    ${xpBarHtml(p, true)}
     <div class="chips"><span class="chip acc">PG ${d.pg}</span><span class="chip acc">CA ${d.ca}</span><span class="chip">Competencia ${fm(d.prof)}</span><span class="chip">Velocidad ${d.vel} pies</span>${nAv?`<span class="chip warn">Revisa la ficha (${nAv} aviso${nAv===1?"":"s"})</span>`:""}</div>
     ${p.historia?`<p class="small muted">${esc(p.historia.slice(0,160))}${p.historia.length>160?"…":""}</p>`:""}
     <div class="row">${mio ? `<button class="btn sm" data-act="pj-editar" data-id="${p.id}">Ver y editar</button><span data-confirm="${p.id}"><button class="btn sm ghost" data-act="pj-borrar" data-id="${p.id}">Borrar</button></span>` : `<button class="btn sm" data-act="pj-ver" data-id="${p.id}">Ver ficha</button>`}</div>
@@ -222,7 +223,7 @@ function vFicha(p){
   return `<section class="view">
     <div class="panel-h"><div style="display:grid;gap:6px"><span class="label">${esc(d.raza.nombre)} · ${esc(p.clase)} · nivel ${p.nivel}</span><h1>${esc(p.nombre)}</h1>${ownerChip(p.dueno)}</div><button class="btn ghost" data-act="pj-volver">Volver</button></div>
     <div class="panel"><div class="stats">${AB.map(k=>`<div class="stat"><span class="k">${k}</span><span class="m">${fm(modOf(d.sc[k]))}</span><span class="s">${d.sc[k]}</span></div>`).join("")}</div>
-    <div class="chips"><span class="chip acc">PG ${d.pg}</span><span class="chip acc">CA ${d.ca}</span><span class="chip">Iniciativa ${fm(d.ini)}</span><span class="chip">Competencia ${fm(d.prof)}</span><span class="chip">Velocidad ${d.vel} pies</span></div>${avisosHtml(p)}</div>
+    <div class="chips"><span class="chip acc">PG ${d.pg}</span><span class="chip acc">CA ${d.ca}</span><span class="chip">Iniciativa ${fm(d.ini)}</span><span class="chip">Competencia ${fm(d.prof)}</span><span class="chip">Velocidad ${d.vel} pies</span></div>${xpBarHtml(p)}${avisosHtml(p)}</div>
     <div class="panel"><dl class="kv">${kv.map(([k,v])=>`<dt>${k}</dt><dd>${esc(v)}</dd>`).join("")}</dl></div>
   </section>`;
 }
@@ -331,6 +332,7 @@ async function guardarPJ(){
   leerForm(); const p = S.edit;
   if (!p.nombre.trim()){ toast("Ponle un nombre a tu personaje."); $("#f-nombre")?.focus(); return; }
   if (p.raza_id){ const r = razaInfo(p); p.razaSnap = { nombre:r.nombre, b:r.b, v:r.v, t:(r.t||"").slice(0,300) }; } else delete p.razaSnap;
+  const actual = p.id && pjById(p.id); if (actual && (+actual.xp || 0) > (+p.xp || 0)){ p.xp = actual.xp; p.nivel = Math.max(+p.nivel || 1, +actual.nivel || 1); }
   const row = pjToRow(p);
   S.busy = true; render();
   try {
