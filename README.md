@@ -5,9 +5,12 @@ Web en español para jugar a D&D 5ª edición (reglas SRD) con amigos:
 - **Cuentas de usuario.** Cada persona entra con su correo y elige un nombre de usuario.
 - **Personajes compartidos.** Todos ven las fichas de todos, con el nombre de su jugador. Solo el dueño puede editar las suyas.
 - **Razas y facciones de la mesa.** Cualquiera puede crear razas o facciones nuevas. La web pide la información obligatoria de cada tipo y la IA puede completar lo que falte. Todos pueden usarlas para crear personajes, pero solo quien las creó puede editarlas o borrarlas.
-- **Partidas.** La IA genera la campaña. Cada jugador se une con **un solo personaje** por partida, y la base de datos lo garantiza.
+- **Partidas.** La IA genera la campaña, o se escribe a mano. Cada jugador puede llevar uno o varios de sus personajes a la misma partida.
 - **IA como Dungeon Master.** La IA narra en vivo para todo el grupo, pide tiradas con botones y tira los dados de los monstruos con un generador aleatorio real.
-- **DM propio.** Si tenéis DM humano, la IA le asesora en privado. Incluye un control de iniciativa y notas privadas.
+- **DM propio.** Si tenéis DM humano, dirige desde la pantalla «Jugar» sin necesidad de IA: narra en el chat, pide tiradas con botones y tira por los enemigos a la vista de todos. Si la IA está activa, además le asesora en privado. Incluye un control de iniciativa y notas privadas.
+- **Combate en la mesa.** Quien dirige añade enemigos del SRD (o propios) y una calculadora le dice si el encuentro es fácil, medio, difícil o mortal para su grupo y cuánta experiencia da. Al empezar se tira la iniciativa y cada jugador ve en su chat el orden y de quién es el turno. En su turno, el jugador ataca desde un formulario: la app compara con la CA y el daño se aplica solo, igual que los ataques de los enemigos. Cada jugador ve siempre los PG que le quedan a sus personajes.
+- **Dados físicos.** Si preferís tirar dados de verdad, el DM lo activa en «Opciones de la mesa»: se escribe lo que ha salido y la app suma los modificadores de la ficha (habilidades con competencia, salvaciones, ataques, iniciativa y daño).
+- **Avisos en las fichas.** La web avisa si quedan puntos sin gastar, si la característica principal de la clase está baja o si falta la CA de la armadura.
 - **Wiki de dados para principiantes.** Se puede ver sin cuenta.
 
 ## Cómo está hecho

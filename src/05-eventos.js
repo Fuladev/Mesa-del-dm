@@ -61,7 +61,8 @@ async function tirarPeticion(t){
   if (t.disabled) return;
   const not = t.dataset.roll, lab = t.dataset.label, cd = t.dataset.cd, key = t.dataset.key;
   const mode = /desventaja/i.test(lab) ? "desventaja" : /ventaja/i.test(lab) ? "ventaja" : "normal";
-  let r; try { r = rollNotation(not, mode); } catch (e) { toast(esc(e.message)); return; }
+  const c0 = partida(S.playId);
+  let r; try { r = tirarCon(c0, not, lab || not, mode); if (!r) return; } catch (e) { toast(esc(e.message)); return; }
   const linea = `Tirada de ${lab || not}: ${not} → ${r.detalle} = ${r.total}${r.crit?" (¡20 natural!)":r.pifia?" (1 natural)":""}`;
   const box = $("#play-in"); if (box){ box.value = (box.value ? box.value.trim() + "\n" : "") + linea; S.draft = box.value; }
   t.disabled = true; t.firstElementChild.textContent = "Tirado: " + r.total;
@@ -132,21 +133,23 @@ document.addEventListener("click", async (ev) => {
     case "camp-borrar": confirmar(t, async () => { if (await borrar("dm_partidas", id, "Partida borrada.")){ S.partidas = S.partidas.filter(c => c.id !== id); S.participantes = S.participantes.filter(x => x.partida_id !== id); S.campSel = null; } render(); }); break;
     case "spoilers": S.spoilers = t.checked; render(); break;
     case "part-unir": unirme(); break;
-    case "part-salir": confirmar(t, () => salirDe(S.campSel, S.me), "Sí, salir"); break;
-    case "part-quitar": salirDe(S.campSel, t.dataset.u); break;
+    case "part-quitar": confirmar(t, () => salirDe(S.campSel, t.dataset.pj), "Sí, sacar"); break;
     case "ir-jugar": S.playId = id; ir("#jugar"); break;
     case "ir-asistente": S.dmId = id; ir("#asistente"); break;
     // jugar
     case "play-start": enviarDM(""); break;
-    case "play-send": { const v = $("#play-in").value.trim(); if (!v){ $("#play-st").textContent = "Escribe qué hace tu personaje o tira los dados que pidió el DM."; break; } enviarDM(v); } break;
+    case "play-send": { const v = $("#play-in").value.trim(); if (!v){ $("#play-st").textContent = "Escribe qué hace tu personaje o tira los dados que pidió el DM."; break; } dmHumano(partida(S.playId)) ? enviarHumano(v) : enviarDM(v); } break;
+    case "dm-gancho": { const c = partida(S.playId), box = $("#play-in"); if (!c || !box) break; box.value = c.gancho + (box.value.trim() ? "\n\n" + box.value.trim() : "") + "\n\n¿Qué hacéis?"; S.draft = box.value; box.focus(); } break;
+    case "dm-pedir": dmPedirTirada(); break;
+    case "dm-tirar": dmTirar(); break;
     case "play-hint": { const box = $("#play-in"); if (!box) break; box.value = t.dataset.t; S.draft = box.value; box.focus(); } break;
     case "play-resumen": { const c = partida(S.playId); if (!c) break; S.busy = true; render();
         try { await resumir(c, true); await q(sb.from("dm_partidas").update({ resumen:c.resumen, resumen_idx:c.resumenIdx }).eq("id", c.id)); toast("Historia resumida. El DM la recordará."); }
         catch (e) { toast(esc(e?.code ? iaMsg(e) : errorTexto(e))); }
         S.busy = false; render(); } break;
     case "play-reset": confirmar(t, async () => { const c = partida(id);
-        try { await guardar(sb.from("dm_partidas").update({ log:[], resumen:"", resumen_idx:0, usados:{}, pg_act:{}, escribiendo:null, escribiendo_ts:null }).eq("id", id), "Partida reiniciada.");
-          Object.assign(c, { log:[], resumen:"", resumenIdx:0, usados:{}, pgAct:{}, escribiendo:null }); } catch {}
+        try { await guardar(sb.from("dm_partidas").update({ log:[], resumen:"", resumen_idx:0, usados:{}, pg_act:{}, combate:{}, escribiendo:null, escribiendo_ts:null }).eq("id", id), "Partida reiniciada.");
+          Object.assign(c, { log:[], resumen:"", resumenIdx:0, usados:{}, pgAct:{}, combate:{}, escribiendo:null }); } catch {}
         render(); }, "Sí, reiniciar"); break;
     case "hp": cambiarPG(id, +t.dataset.d); break;
     case "die": tirarBandeja("1d" + t.dataset.n); break;
@@ -172,6 +175,7 @@ document.addEventListener("change", async (ev) => {
   if (t.matches("[data-abil]")){ leerForm(); S.edit.base[t.dataset.abil] = +t.value; render(true); return; }
   if (["f-raza","f-clase","f-nivel","f-faccion"].includes(t.id)){ render(); return; }
   if (t.id === "play-camp"){ S.playId = t.value; render(); return; }
+  if (t.id === "play-como"){ S.habla[S.playId] = t.value; render(); return; }
   if (t.id === "dm-camp"){ S.dmId = t.value; render(); return; }
   if (t.id === "cd-modo"){ const c = partida(S.campSel); try { await guardar(sb.from("dm_partidas").update({ modo:t.value }).eq("id", c.id), "Modo cambiado."); c.modo = t.value; } catch {} render(); return; }
   if (t.id === "opt-aprendiz"){ const c = partida(S.playId); try { await guardar(sb.from("dm_partidas").update({ aprendiz:t.checked }).eq("id", c.id)); c.aprendiz = t.checked; } catch {} return; }
