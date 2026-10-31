@@ -93,13 +93,11 @@ function tiradaFisica(not, valor){
   const nat = dados.length === 1 && dados[0].n === 1 && dados[0].f === 20 ? v : null;
   return { total:v + k, detalle:`${dt} [${v}, dado físico]${k ? " " + sgn(k) : ""}`, nat, crit:nat === 20, pifia:nat === 1, notacion:not };
 }
-// Tira con la app o, si la mesa usa dados físicos, pregunta qué salió. Devuelve null si se cancela.
-function tirarCon(c, not, etiqueta, mode="normal"){
+// Tira con la app o, si la mesa usa dados físicos, usa lo que se ha escrito que salió en los dados
+function tirarCon(c, not, etiqueta, mode="normal", valor=""){
   if (!c?.dadosFisicos) return rollNotation(not, mode);
-  const dt = partesNot(not).dados.map(d => d.n + "d" + d.f).join("+");
-  const txt = prompt(`${etiqueta}\nDados físicos: ¿cuánto suman los dados (${dt})?${mode !== "normal" ? ` Con ${mode}, escribe el d20 que te quedas.` : ""} La app añade los modificadores.`);
-  if (txt === null) return null;
-  return tiradaFisica(not, txt.trim());
+  if (valor === "" || valor == null){ const dt = partesNot(not).dados.map(d => d.n + "d" + d.f).join("+"); throw new Error(`${etiqueta}: escribe cuánto suman los dados (${dt}).`); }
+  return tiradaFisica(not, String(valor).trim());
 }
 const doblarDados = not => String(not).replace(/(\d*)d(\d+)/gi, (a, n, f) => (2 * (+n || 1)) + "d" + f);
 const lineaTirada = r => `${r.notacion} → ${r.detalle} = **${r.total}**${r.crit ? " (¡20 natural!)" : r.pifia ? " (1 natural)" : ""}`;
@@ -134,36 +132,197 @@ function trasDano(c, objetivo, nuevo){
 }
 
 /* ---------- vistas ---------- */
-// Cartel de turnos que ve todo el mundo en el chat
-function combateBanner(c){
+
+/* ---------- la ficha manda: modificadores de cada tirada ---------- */
+function modTirada(p, tipo){
+  const d = derive(p), [cl, x] = tipo.split(":");
+  if (cl === "hab"){ const k = HABILIDADES[x], comp = compHab(p, x); return { mod:modOf(d.sc[k]) + (comp ? d.prof : 0), nombre:x, comp }; }
+  if (cl === "sv"){ const comp = d.sv.includes(x); return { mod:modOf(d.sc[x]) + (comp ? d.prof : 0), nombre:`Salvación de ${AB_N[x]}`, comp }; }
+  if (cl === "car") return { mod:modOf(d.sc[x]), nombre:AB_N[x] };
+  if (cl === "ini") return { mod:d.ini, nombre:"Iniciativa" };
+  if (cl === "muerte") return { mod:0, nombre:"Salvación contra la muerte" };
+  const car = x === "MAG" ? conMagia(p) : x; return { mod:modOf(d.sc[car]) + d.prof, nombre:`Ataque (${ATQ_CORTO[x]})`, car };
+}
+function opcionesTirada({ ini=false, ataques=false, muerte=false, p=null } = {}){
+  const m = t => p ? ` (${sgn(modTirada(p, t).mod) || "+0"}${modTirada(p, t).comp ? ", competente" : ""})` : "";
+  return `<optgroup label="Habilidades">${Object.keys(HABILIDADES).map(h => `<option value="hab:${h}">${h}${m("hab:" + h)}</option>`).join("")}</optgroup>
+    <optgroup label="Salvaciones">${AB.map(k => `<option value="sv:${k}">Salvación de ${AB_N[k]}${m("sv:" + k)}</option>`).join("")}</optgroup>
+    <optgroup label="Características">${AB.map(k => `<option value="car:${k}">${AB_N[k]}${m("car:" + k)}</option>`).join("")}</optgroup>
+    ${ini || ataques || muerte ? `<optgroup label="Combate">${ini ? `<option value="ini">Iniciativa${m("ini")}</option>` : ""}${muerte ? `<option value="muerte">Salvación contra la muerte</option>` : ""}${ataques ? Object.entries(CON_ATAQUE).map(([v,t]) => `<option value="at:${v}">Ataque: ${t}${m("at:" + v)}</option>`).join("") : ""}</optgroup>` : ""}`;
+}
+const esMio = pjId => S.personajes.some(p => p.id === pjId && p.dueno === S.me);
+const misPjsEn = c => misParticipaciones(c.id).map(x => pjById(x.personaje_id)).filter(Boolean);
+// Peticiones de tirada del DM que siguen sin resolver, con el personaje al que van dirigidas
+function pendientesDe(c){
+  const grupo = grupoDe(c.id), out = [];
+  (c.log || []).forEach((m, i) => {
+    if (m.r !== "dm") return;
+    let n = 0;
+    String(m.t).replace(/\[\[\s*tirada\s*:\s*([^\]|]+?)\s*(?:\|\s*([^\]|]*?)\s*)?(?:\|\s*([^\]|]*?)\s*)?\]\]/gi, (all, not, lab, cd) => {
+      const key = i + ":" + (n++); if (c.usados?.[key]) return all;
+      const l = lab || "", nom = (l.match(/\(([^)]+)\)\s*$/) || [])[1] || "";
+      const pj = nom ? grupo.find(p => sinTildes(p.nombre) === sinTildes(nom) || sinTildes(p.nombre.split(" ")[0]) === sinTildes(nom.split(" ")[0])) : null;
+      out.push({ key, not:not.trim(), lab:l, cd:cd || "", pj:pj || null });
+      return all;
+    });
+  });
+  return out;
+}
+const veredicto = (cd, total, nat) => { const n = +((String(cd).match(/\d+/) || [])[0]); if (!n) return ""; const ca = /ca/i.test(cd);
+  if (ca) return nat === 20 ? ` contra CA ${n}: ¡crítico!` : nat === 1 ? ` contra CA ${n}: falla.` : ` contra CA ${n}: ${total >= n ? "impacta" : "falla"}.`;
+  return ` contra CD ${n}: ${total >= n ? "éxito" : "fallo"}.`; };
+// Publica la tirada de un jugador: con DM propio va directa al chat; con la IA se añade al mensaje
+async function publicar(c, pjId, linea){
+  const box = $("#play-in"), desc = (box?.value || S.draft || "").trim();
+  if (!dmHumano(c)){ const v = (desc ? desc + "\n" : "") + linea; S.draft = v; if (box) box.value = v; toast("Añadido a tu mensaje: pulsa Enviar cuando estéis listos."); return; }
+  await anadirLog(c, [{ r:"user", t:(desc ? desc + "\n" : "") + linea, pj:pjId }]);
+  S.draft = "";
+}
+async function marcarUsado(c, key, total){
+  c.usados = { ...c.usados, [key]: String(total) };
+  try { const f = await q(sb.from("dm_partidas").select("usados").eq("id", c.id).single()); await q(sb.from("dm_partidas").update({ usados:{ ...(f.usados || {}), [key]:String(total) } }).eq("id", c.id)); } catch {}
+}
+async function resolverPeticion(c, req, valor){
+  if (S.busy) return;
+  const mode = /desventaja/i.test(req.lab) ? "desventaja" : /ventaja/i.test(req.lab) ? "ventaja" : "normal";
+  let r; try { r = tirarCon(c, req.not, req.lab || req.not, mode, valor); } catch (e) { toast(esc(e.message)); return; }
+  const pjId = req.pj?.id || vozActual(c);
+  const linea = `Tirada de ${req.lab || req.not}: ${req.not} → ${r.detalle} = ${r.total}${r.crit ? " (¡20 natural!)" : r.pifia ? " (1 natural)" : ""}${veredicto(req.cd, r.total, r.nat)}`;
+  S.busy = true;
+  try { await marcarUsado(c, req.key, r.total); await publicar(c, pjId, linea); } catch (e) { toast(esc(errorTexto(e))); }
+  S.busy = false; render();
+}
+// Tirada que el jugador decide hacer por su cuenta (habilidad, salvación, iniciativa…), calculada con su ficha
+async function tiradaLibre(c){
+  const p = pjById(vozActual(c)), tipo = $("#pl-tipo")?.value; if (!p || !tipo) return;
+  const { mod, nombre, comp } = modTirada(p, tipo), not = `1d20${sgn(mod)}`;
+  let r; try { r = tirarCon(c, not, nombre, S.trayMode, $("#pl-d20")?.value); } catch (e) { toast(esc(e.message)); return; }
+  let extra = "";
+  S.busy = true;
+  try {
+    if (tipo === "ini"){ const e = cb(c).orden.find(o => o.id === p.id); if (cb(c).activo && e) c.combate = await q(sb.rpc("dm_poner_iniciativa", { p:c.id, pj:p.id, dado:r.nat ?? Math.max(1, Math.min(20, r.total - mod)) })); }
+    if (tipo === "muerte"){
+      if (r.nat === 20){ const nuevo = await aplicarDano(c, p.id, -1); extra = ` **¡20 natural! ${p.nombre} recupera 1 PG y se levanta** (${nuevo} PG).`; }
+      else extra = r.nat === 1 ? " **1 natural: cuenta como dos fallos.**" : r.total >= 10 ? " **Éxito.** (Con 3 éxitos se estabiliza.)" : " **Fallo.** (Con 3 fallos, muere.)";
+    }
+    await publicar(c, p.id, `Tirada de ${nombre} (${p.nombre})${comp ? ", con competencia" : ""}: ${lineaTirada(r)}${extra}`);
+    if ($("#pl-d20")) $("#pl-d20").value = "";
+  } catch (e) { toast(esc(errorTexto(e))); }
+  S.busy = false; render();
+}
+async function iniciativaJugador(c, pjId, valor){
+  const p = pjById(pjId); if (!p) return;
+  const mod = derive(p).ini;
+  let r; try { r = tirarCon(c, `1d20${sgn(mod)}`, `Iniciativa de ${p.nombre}`, "normal", valor); } catch (e) { toast(esc(e.message)); return; }
+  S.busy = true;
+  try { c.combate = await q(sb.rpc("dm_poner_iniciativa", { p:c.id, pj:p.id, dado:r.nat })); await anadirLog(c, [{ r:"user", t:`Iniciativa de ${p.nombre}: ${lineaTirada(r)}`, pj:p.id }]); }
+  catch (e) { toast(esc(errorTexto(e))); }
+  S.busy = false; render();
+}
+
+/* ---------- vistas ---------- */
+// Cartel de turnos que ve todo el mundo en el chat. Los jugadores solo ven si un enemigo está herido, no sus PG.
+function combateBanner(c, voz){
   const k = cb(c); if (!k.activo) return "";
-  const soyDM = c.creador === S.me, act = actorActual(c);
-  const mio = act?.tipo === "pj" && misParticipaciones(c.id).some(x => x.personaje_id === act.id);
-  const chips = k.orden.map((e,i) => { const { act:a, max } = pgDe(c, e), info = e.tipo === "pj" || soyDM ? `${a}/${max}` : estadoEnemigo(e);
+  const dm = voz === "dm", act = actorActual(c);
+  const mio = act?.tipo === "pj" && esMio(act.id);
+  const chips = k.orden.map((e,i) => { const { act:a, max } = pgDe(c, e), info = e.tipo === "pj" || dm ? `${a}/${max}` : estadoEnemigo(e);
     return `<span class="ord ${i === k.turno ? "now" : ""} ${a <= 0 ? "ko" : ""} ${e.tipo}"><b>${esc(e.nombre)}</b> <span class="mono">${iniTotal(e) ?? "–"}</span> <span class="small">${esc(String(info))}</span></span>`; }).join("");
-  const titulo = k.turno < 0 ? "Combate: tirando iniciativa…" : mio ? `¡Te toca con ${esc(act.nombre)}!` : `Ronda ${k.ronda} · turno de ${esc(act?.nombre || "?")}${act?.tipo === "pj" ? ` (${esc(nombreUsuario(pjById(act.id)?.dueno))})` : ""}`;
+  const faltan = k.orden.filter(e => e.tipo === "pj" && e.dado == null).map(e => e.nombre);
+  const titulo = k.turno < 0 ? `Combate: tirando iniciativa${faltan.length ? ` (faltan ${esc(faltan.join(", "))})` : ""}` : mio ? `¡Te toca con ${esc(act.nombre)}!` : `Ronda ${k.ronda} · turno de ${esc(act?.nombre || "?")}${act?.tipo === "pj" ? ` (${esc(nombreUsuario(pjById(act.id)?.dueno))})` : ""}`;
   return `<div class="turno-banner ${mio ? "mio" : ""}" role="status"><b>${titulo}</b><div class="orden-strip">${chips}</div></div>`;
 }
 // PG de los personajes del usuario, siempre a la vista junto al chat
 function misPG(c){
-  const mios = misParticipaciones(c.id).map(x => pjById(x.personaje_id)).filter(Boolean); if (!mios.length) return "";
+  const mios = misPjsEn(c); if (!mios.length) return "";
   return `<div class="pg-chips"><span class="small muted">Tus personajes:</span>${mios.map(p => { const max = derive(p).pg, a = c.pgAct?.[p.id] ?? max, pct = a / max;
     return `<span class="pg-chip ${a <= 0 ? "ko" : pct <= .25 ? "bad" : pct <= .5 ? "warn" : ""}"><b>${esc(p.nombre.split(" ")[0])}</b> <span class="mono">${a}/${max} PG</span>${a <= 0 ? " · inconsciente" : ""}</span>`; }).join("")}</div>`;
 }
-// Formulario de ataque del jugador en su turno: la app tira (o pregunta los dados físicos), compara con la CA y aplica el daño
+const inputDado = (attrs, ph="d20") => `<input type="number" class="mono dado-in" ${attrs} min="1" max="200" placeholder="${ph}" inputmode="numeric">`;
+// Lo que el jugador tiene que hacer ahora: tiradas que le pide el DM, su iniciativa y su ataque, con los dados físicos escritos ahí mismo
+function accionesJugador(c, pjId){
+  const fis = !!c.dadosFisicos, k = cb(c), out = [];
+  for (const req of pendientesDe(c).filter(r => r.pj && esMio(r.pj.id))){
+    out.push(`<div class="accion"><div><b>El DM pide a ${esc(req.pj.nombre)}:</b> ${esc(req.lab.replace(/\s*\([^)]*\)\s*$/, "") || "una tirada")} <span class="mono small">${esc(req.not)}${req.cd ? " · " + esc(req.cd) : ""}</span></div>
+      <div class="row">${fis ? inputDado(`data-pet-val="${req.key}" aria-label="Lo que ha salido en el d20"`, "¿Qué sacaste?") : ""}<button class="btn sm primary" data-act="cb-pet" data-key="${req.key}" ${S.busy ? "disabled" : ""}>${fis ? "Calcular y enviar" : "Tirar"}</button></div></div>`);
+  }
+  if (k.activo) for (const e of k.orden.filter(e => e.tipo === "pj" && e.dado == null && esMio(e.id))){
+    const p = pjById(e.id); if (!p) continue;
+    out.push(`<div class="accion"><div><b>Iniciativa de ${esc(p.nombre)}:</b> tira 1d20 <span class="mono small">${sgn(derive(p).ini) || "+0"}</span></div>
+      <div class="row">${fis ? inputDado(`data-ini-val="${p.id}" aria-label="d20 de iniciativa"`) : ""}<button class="btn sm primary" data-act="cb-ini" data-pj="${p.id}" ${S.busy ? "disabled" : ""}>${fis ? "Apuntar" : "Tirar"}</button></div></div>`);
+  }
+  const a = S.atq?.c === c.id ? S.atq : null;
+  if (a){ const e = k.orden.find(x => x.id === a.e);
+    out.push(`<div class="accion mio"><div><b>¡${esc(pjById(a.pj)?.nombre || "")} impacta a ${esc(e?.nombre || "")}${a.r.crit ? " con un crítico" : ""}!</b> Tira el daño: <span class="mono">${esc(a.dn)}</span>${a.r.crit ? " (crítico: dados dobles)" : ""}.</div>
+      <div class="row">${inputDado(`id="fa-dv" aria-label="Suma de los dados de daño"`, "suma de los dados")}<button class="btn sm primary" data-act="cb-dano-pj">Aplicar daño</button><button class="btn sm ghost" data-act="cb-atq-no">Cancelar</button></div></div>`);
+  } else if (k.activo && k.turno >= 0) out.push(formAtaque(c, pjId));
+  return out.filter(Boolean).length ? `<div class="acciones">${out.join("")}</div>` : "";
+}
+// Formulario de ataque del jugador: la app usa su ficha, compara con la CA y aplica el daño
 function formAtaque(c, pjId){
-  const act = actorActual(c), p = pjById(pjId); if (!act || act.id !== pjId || !p) return "";
+  const act = actorActual(c), p = pjById(pjId); if (!p || !esMio(pjId)) return "";
   const enem = cb(c).orden.filter(e => e.tipo === "enemigo" && +e.pg > 0); if (!enem.length) return "";
   const d = derive(p), mag = ["Mago","Hechicero","Brujo"].includes(p.clase), con = mag ? "MAG" : modOf(d.sc.DES) > modOf(d.sc.FUE) ? "DES" : "FUE";
-  const dano = mag ? "1d10" : (String(p.equipo || "").match(/\((\d+d\d+)\)/)?.[1] || "1d8");
-  return `<div class="ataque-form row">
-    <label class="field"><span>Atacar a</span><select id="fa-obj">${enem.map(e => `<option value="${esc(e.id)}">${esc(e.nombre)} (CA ${e.ca})</option>`).join("")}</select></label>
-    <label class="field"><span>Con</span><select id="fa-con">${Object.entries(CON_ATAQUE).map(([v,t]) => `<option value="${v}" ${v === con ? "selected" : ""}>${t}</option>`).join("")}</select></label>
-    <label class="field" style="max-width:110px"><span>Dado de daño</span><input type="text" id="fa-dano" class="mono" value="${dano}"></label>
-    <button class="btn sm primary" data-act="cb-atacar-pj" ${S.busy ? "disabled" : ""}>Atacar</button>
-    <span class="small muted">Lo que escribas abajo se envía como descripción del ataque.</span>
+  const dano = mag ? "1d10" : (String(p.equipo || "").match(/\((\d+d\d+)\)/)?.[1] || "1d8"), turno = act?.id === pjId;
+  return `<div class="accion ${turno ? "mio" : ""}"><div><b>${turno ? `Tu turno: ataca con ${esc(p.nombre)}` : `Atacar con ${esc(p.nombre)}`}</b>${turno ? "" : ` <span class="small muted">(ahora le toca a ${esc(act?.nombre || "otro")}; ataca solo si el DM te lo dice)</span>`}</div>
+    <div class="row ataque-form">
+    <label class="field"><span>Objetivo</span><select id="fa-obj">${enem.map(e => `<option value="${esc(e.id)}">${esc(e.nombre)} (CA ${e.ca})</option>`).join("")}</select></label>
+    <label class="field"><span>Con</span><select id="fa-con">${Object.keys(CON_ATAQUE).map(v => `<option value="${v}" ${v === con ? "selected" : ""}>${CON_ATAQUE[v]} ${sgn(modTirada(p, "at:" + v).mod) || "+0"}</option>`).join("")}</select></label>
+    <label class="field" style="max-width:100px"><span>Daño</span><input type="text" id="fa-dano" class="mono" value="${dano}"></label>
+    ${c.dadosFisicos ? `<label class="field" style="max-width:110px"><span>Tu d20</span>${inputDado(`id="fa-d20"`)}</label>` : ""}
+    <button class="btn sm primary" data-act="cb-atacar-pj" ${S.busy ? "disabled" : ""}>Atacar</button></div>
+    <span class="small muted">Lo que escribas en el cuadro de abajo se envía como descripción del ataque.</span></div>`;
+}
+// Panel lateral del jugador: solo su personaje, sus PG, sus bonificadores y sus tiradas
+function panelJugador(c, p){
+  if (!p) return "";
+  const d = derive(p), max = d.pg, a = c.pgAct?.[p.id] ?? max, pct = Math.max(0, Math.min(100, a / max * 100));
+  const habs = Object.keys(HABILIDADES).map(h => ({ h, ...modTirada(p, "hab:" + h) }));
+  return `<div class="panel ficha-mesa">
+    <div class="panel-h"><h3>${esc(p.nombre)}</h3><button class="btn sm ghost" data-act="pj-ver" data-id="${p.id}">Ficha</button></div>
+    <div class="party-row" style="border:0"><div class="small muted">${esc(p.clase)} ${p.nivel || 1} · CA ${d.ca} · iniciativa ${fm(d.ini)} · competencia ${fm(d.prof)}</div>
+      <div class="hp"><button data-act="hp" data-id="${p.id}" data-d="-1" aria-label="Quitar 1 PG">−</button><span class="mono">${a}/${max}</span><button data-act="hp" data-id="${p.id}" data-d="1" aria-label="Sumar 1 PG">+</button></div>
+      <div class="hpbar"><i style="width:${pct}%;background:${pct<=25?"var(--bad)":pct<=50?"var(--warn)":"var(--ok)"}"></i></div></div>
+    ${a <= 0 ? `<p class="small" style="color:var(--bad)"><b>A 0 PG:</b> en tu turno haz una salvación contra la muerte (abajo).</p>` : ""}
+    <div class="mods">${AB.map(k => `<span><b>${k}</b> ${fm(modOf(d.sc[k]))}${d.sv.includes(k) ? "<i>salv. " + fm(modOf(d.sc[k]) + d.prof) + "</i>" : ""}</span>`).join("")}</div>
+    <details><summary class="small">Habilidades</summary><div class="habs">${habs.map(x => `<span class="${x.comp ? "comp" : ""}">${x.h} <b class="mono">${fm(x.mod)}</b></span>`).join("")}</div></details>
+    <div class="row tirada-libre">
+      <label class="field"><span>Tirar por mi cuenta</span><select id="pl-tipo">${opcionesTirada({ ini:true, muerte:true, p })}</select></label>
+      ${c.dadosFisicos ? `<label class="field" style="max-width:90px"><span>Tu d20</span>${inputDado(`id="pl-d20"`)}</label>` : ""}
+      <button class="btn sm" data-act="cb-libre" ${S.busy ? "disabled" : ""}>${c.dadosFisicos ? "Calcular" : "Tirar"}</button>
+    </div>
+    ${c.dadosFisicos ? `<p class="small muted">Dados físicos: tira tus dados de verdad, escribe lo que sale y la app suma tus bonificadores.</p>` : ""}
   </div>`;
 }
+// Panel lateral del DM: qué pasa con cada jugador (PG, lo que le has pedido, su iniciativa y lo último que hizo)
+function panelGrupoDM(c, grupo){
+  const pend = pendientesDe(c), k = cb(c);
+  const ultimo = pid => { for (let i = c.log.length - 1; i >= 0; i--){ const m = c.log[i]; if (m.r === "user" && m.pj === pid) return String(m.t).split("\n").filter(Boolean).pop() || ""; } return ""; };
+  return `<div class="panel">
+    <div class="panel-h"><h3>Los jugadores</h3><button class="btn sm ghost" data-act="camp-ver" data-id="${c.id}">Partida</button></div>
+    ${grupo.length ? grupo.map(p => { const d = derive(p), act = c.pgAct?.[p.id] ?? d.pg, pct = Math.max(0, Math.min(100, act / d.pg * 100));
+      const mis = pend.filter(r => r.pj?.id === p.id), e = k.activo ? k.orden.find(o => o.id === p.id) : null, u = ultimo(p.id);
+      return `<div class="party-row"><div><b>${esc(p.nombre)}</b><div class="small muted">${esc(nombreUsuario(p.dueno))} · ${esc(p.clase)} · CA ${d.ca} · ini ${fm(d.ini)}</div></div>
+        <div class="hp"><button data-act="hp" data-id="${p.id}" data-d="-1" aria-label="Quitar 1 PG">−</button><span class="mono">${act}/${d.pg}</span><button data-act="hp" data-id="${p.id}" data-d="1" aria-label="Sumar 1 PG">+</button></div>
+        <div class="hpbar"><i style="width:${pct}%;background:${pct<=25?"var(--bad)":pct<=50?"var(--warn)":"var(--ok)"}"></i></div>
+        <div class="estado-j small">${act <= 0 ? `<span class="chip warn">Inconsciente</span>` : ""}${mis.map(r => `<span class="chip warn">Esperando: ${esc(r.lab.replace(/\s*\([^)]*\)\s*$/, ""))}${r.cd ? " " + esc(r.cd) : ""}</span>`).join("")}${e && e.dado == null ? `<span class="chip warn">Falta su iniciativa</span>` : ""}${u ? `<div class="muted">Último: ${rich(u).replace(/<\/?p>/g, "")}</div>` : ""}</div></div>`; }).join("") : `<p class="small muted">Aún no hay personajes en la partida.</p>`}
+  </div>`;
+}
+// Herramienta de reserva del DM: escribir el dado de un jugador que no tiene la app abierta
+function fisicaHtml(c, grupo){
+  if (!c.dadosFisicos || !grupo.length) return "";
+  const enem = cb(c).orden.filter(e => e.tipo === "enemigo" && +e.pg > 0);
+  return `<details class="fisica"><summary class="small">Escribir el dado de un jugador que no tiene la app abierta</summary><div class="row">
+    <label class="field"><span>Personaje</span><select id="pf-pj">${grupo.map(p => `<option value="${p.id}">${esc(p.nombre)}</option>`).join("")}</select></label>
+    <label class="field"><span>Tirada</span><select id="pf-tipo">${opcionesTirada({ ini:true, ataques:true })}</select></label>
+    <label class="field" style="max-width:80px"><span>d20</span><input type="number" id="pf-dado" min="1" max="20" class="mono"></label>
+    <label class="field" style="max-width:80px"><span>CD</span><input type="number" id="pf-cd" min="1" max="30" placeholder="—"></label>
+    ${enem.length ? `<label class="field"><span>Si ataca: a</span><select id="pf-obj">${enem.map(e => `<option value="${esc(e.id)}">${esc(e.nombre)} (CA ${e.ca})</option>`).join("")}</select></label>
+    <label class="field" style="max-width:90px"><span>Dados de daño</span><input type="number" id="pf-dano" min="1" max="200" class="mono" placeholder="suma"></label>` : ""}
+    <button class="btn sm" data-act="cb-fisica">Calcular y mostrar</button>
+  </div></details>`;
+}
+
 // Panel del DM: preparar el encuentro, calculadora, iniciativa, turnos, ataques de los enemigos y daño a mano
 function panelCombate(c, grupo){
   const k = cb(c), enem = k.orden.filter(e => e.tipo === "enemigo"), calc = calcEncuentro(grupo, enem);
@@ -202,6 +361,7 @@ function panelCombate(c, grupo){
     ${k.activo && vivosE.length && grupo.length ? `<div class="row cb-add"><span class="small">Ataque enemigo:</span>
       <select id="cb-atk" aria-label="Atacante">${vivosE.map(e => `<option value="${esc(e.id)}" ${act?.id === e.id ? "selected" : ""}>${esc(e.nombre)}</option>`).join("")}</select>
       <select id="cb-vic" aria-label="Objetivo">${grupo.map(p => `<option value="${p.id}">${esc(p.nombre)} (CA ${derive(p).ca})</option>`).join("")}</select>
+      ${c.dadosFisicos ? `${inputDado(`id="cb-atk-d20" aria-label="d20 del enemigo"`)}${inputDado(`id="cb-atk-dano" aria-label="Daño del enemigo"`, "daño")}` : ""}
       <button class="btn sm" data-act="cb-atacar-en">Atacar</button></div>` : ""}
     ${objetivos.length ? `<div class="row cb-add"><span class="small">A mano:</span>
       <select id="cb-obj" aria-label="Objetivo">${objetivos.map(o => `<option value="${esc(o.id)}">${esc(o.n)}</option>`).join("")}</select>
@@ -210,24 +370,6 @@ function panelCombate(c, grupo){
   </div>`;
 }
 // Herramienta del DM con dados físicos: escribe lo que salió en el d20 y la app calcula con la ficha
-function fisicaHtml(c, grupo){
-  if (!c.dadosFisicos || !grupo.length) return "";
-  const enem = cb(c).orden.filter(e => e.tipo === "enemigo" && +e.pg > 0);
-  return `<div class="row fisica"><span class="small"><b>Dado físico de un jugador</b></span>
-    <label class="field"><span>Personaje</span><select id="pf-pj">${grupo.map(p => `<option value="${p.id}">${esc(p.nombre)}</option>`).join("")}</select></label>
-    <label class="field"><span>Tirada</span><select id="pf-tipo">
-      <optgroup label="Habilidades">${Object.keys(HABILIDADES).map(h => `<option value="hab:${h}">${h}</option>`).join("")}</optgroup>
-      <optgroup label="Salvaciones">${AB.map(k => `<option value="sv:${k}">Salvación de ${AB_N[k]}</option>`).join("")}</optgroup>
-      <optgroup label="Características">${AB.map(k => `<option value="car:${k}">${AB_N[k]}</option>`).join("")}</optgroup>
-      <optgroup label="Combate"><option value="ini">Iniciativa</option>${Object.entries(CON_ATAQUE).map(([v,t]) => `<option value="at:${v}">Ataque: ${t}</option>`).join("")}</optgroup>
-    </select></label>
-    <label class="field" style="max-width:80px"><span>d20</span><input type="number" id="pf-dado" min="1" max="20" class="mono"></label>
-    <label class="field" style="max-width:80px"><span>CD</span><input type="number" id="pf-cd" min="1" max="30" placeholder="—"></label>
-    ${enem.length ? `<label class="field"><span>Si ataca: a</span><select id="pf-obj">${enem.map(e => `<option value="${esc(e.id)}">${esc(e.nombre)} (CA ${e.ca})</option>`).join("")}</select></label>
-    <label class="field" style="max-width:90px"><span>Dados de daño</span><input type="number" id="pf-dano" min="1" max="200" class="mono" placeholder="suma"></label>` : ""}
-    <button class="btn sm" data-act="cb-fisica">Calcular y mostrar</button>
-  </div>`;
-}
 
 /* ---------- acciones ---------- */
 function nuevoEnemigo(k, m, n){
@@ -246,7 +388,7 @@ function empezarCombate(c){
     k.orden = [...pjs, ...k.orden.filter(e => e.tipo === "enemigo")];
     k.activo = true; k.ronda = 1; k.turno = -1;
     if (!fis){ k.orden = ordenarIni(k.orden); k.turno = 0; }
-  }, k => k.turno < 0 ? [{ r:"sys", t:"**¡Combate!** Tirad iniciativa con vuestros dados (d20) y decídselo al DM." }]
+  }, k => k.turno < 0 ? [{ r:"sys", t:"**¡Combate!** Tirad iniciativa con vuestros dados (d20): cada uno escribe lo que ha sacado en su panel y la app suma su Destreza." }]
     : [{ r:"sys", t:`**¡Combate!** Orden de iniciativa: ${k.orden.map(e => `${e.nombre} ${iniTotal(e)}`).join(", ")}.` }, ...anuncioTurno(k)]);
 }
 function ordenarCombate(c){
@@ -270,13 +412,15 @@ async function conDano(c, objetivo, cantidad, cabecera){
   } catch (e) { toast(esc(errorTexto(e))); }
   S.busy = false; render();
 }
+
 async function ataqueEnemigo(c){
   const k = cb(c), e = k.orden.find(x => x.id === $("#cb-atk")?.value), p = pjById($("#cb-vic")?.value); if (!e || !p) return;
   const ca = derive(p).ca, not = `1d20${sgn(+e.at)}`;
   let r, dmg = null;
-  try { r = tirarCon(c, not, `Ataque de ${e.nombre} a ${p.nombre}`); if (!r) return; } catch (er) { toast(esc(er.message)); return; }
+  try { r = tirarCon(c, not, `Ataque de ${e.nombre}`, "normal", $("#cb-atk-d20")?.value); } catch (er) { toast(esc(er.message)); return; }
   const impacta = !r.pifia && (r.crit || r.total >= ca);
-  if (impacta){ const dn = r.crit ? doblarDados(e.dano) : e.dano; try { dmg = tirarCon(c, dn, `Daño de ${e.nombre}${r.crit ? " (crítico: dados dobles)" : ""}`); if (!dmg) return; } catch (er) { toast(esc(er.message)); return; } }
+  if (impacta){ const dn = r.crit ? doblarDados(e.dano) : e.dano;
+    try { dmg = tirarCon(c, dn, `¡Impacta (${r.total} contra CA ${ca})! Daño de ${e.nombre}${r.crit ? ", crítico con dados dobles" : ""}`, "normal", $("#cb-atk-dano")?.value); } catch (er) { toast(esc(er.message)); return; } }
   S.busy = true;
   try {
     let t = `${e.nombre} ataca a ${p.nombre}: ${lineaTirada(r)} contra CA ${ca}: ${impacta ? (r.crit ? "**¡crítico!**" : "**impacta**.") : "falla."}`;
@@ -287,36 +431,30 @@ async function ataqueEnemigo(c){
 }
 async function ataqueJugador(c){
   const pjId = vozActual(c), p = pjById(pjId), k = cb(c), e = k.orden.find(x => x.id === $("#fa-obj")?.value); if (!p || !e) return;
-  const con = $("#fa-con").value, dado = $("#fa-dano").value.trim() || "1d8", d = derive(p), car = con === "MAG" ? conMagia(p) : con;
-  const mod = modOf(d.sc[car]), bono = mod + d.prof, not = `1d20${sgn(bono)}`;
+  const con = $("#fa-con").value, dado = $("#fa-dano").value.trim() || "1d8", { mod:bono, car } = modTirada(p, "at:" + con), mod = modOf(derive(p).sc[car]);
   try { partesNot(dado); } catch (er) { toast(esc(er.message)); return; }
-  let r, dmg = null;
-  try { r = tirarCon(c, not, `Ataque de ${p.nombre} a ${e.nombre}`); if (!r) return; } catch (er) { toast(esc(er.message)); return; }
+  let r; try { r = tirarCon(c, `1d20${sgn(bono)}`, `Ataque de ${p.nombre}`, S.trayMode, $("#fa-d20")?.value); } catch (er) { toast(esc(er.message)); return; }
   const impacta = !r.pifia && (r.crit || r.total >= +e.ca);
-  if (impacta){ const dn = (r.crit ? doblarDados(dado) : dado) + (con === "MAG" ? "" : sgn(mod));
-    try { dmg = tirarCon(c, dn, `Daño de ${p.nombre}${r.crit ? " (crítico: dados dobles)" : ""}`); if (!dmg) return; } catch (er) { toast(esc(er.message)); return; } }
-  const box = $("#play-in"), desc = box?.value.trim();
+  const a = { c:c.id, pj:p.id, e:e.id, con, r, impacta, dn:(r.crit ? doblarDados(dado) : dado) + (con === "MAG" ? "" : sgn(mod)) };
+  if (impacta && c.dadosFisicos){ S.atq = a; render(); $("#fa-dv")?.focus(); return; }
+  publicarAtaque(c, a, impacta ? rollNotation(a.dn) : null);
+}
+async function publicarAtaque(c, a, dmg){
+  const p = pjById(a.pj), e = cb(c).orden.find(x => x.id === a.e); if (!p || !e) return;
   S.busy = true;
   try {
-    let t = `${desc ? desc + "\n" : ""}Ataque de ${p.nombre} a ${e.nombre} (${ATQ_CORTO[con]}): ${lineaTirada(r)} contra CA ${e.ca}: ${impacta ? (r.crit ? "**¡crítico!**" : "**impacta**.") : "falla."}`;
+    let t = `Ataque de ${p.nombre} a ${e.nombre} (${ATQ_CORTO[a.con]}): ${lineaTirada(a.r)} contra CA ${e.ca}: ${a.impacta ? (a.r.crit ? "**¡crítico!**" : "**impacta**.") : "falla."}`;
     if (dmg){ const nuevo = await aplicarDano(c, e.id, Math.max(0, dmg.total)); t += `\nDaño: ${lineaTirada(dmg)}. ${trasDano(c, e.id, nuevo)}`; }
-    await anadirLog(c, [{ r:"user", t, pj:p.id }]);
-    S.draft = "";
+    S.atq = null;
+    await publicar(c, p.id, t);
   } catch (er) { toast(esc(errorTexto(er))); }
   S.busy = false; render();
 }
 async function tiradaFisicaDM(c){
   const p = pjById($("#pf-pj")?.value), tipo = $("#pf-tipo").value, v = +$("#pf-dado").value, cd = +$("#pf-cd").value || null; if (!p) return;
   if (!Number.isInteger(v) || v < 1 || v > 20){ toast("Escribe lo que ha salido en el d20 (de 1 a 20)."); return; }
-  const d = derive(p), [clase, x] = tipo.split(":");
-  let mod, nombre, comp = false;
-  if (clase === "hab"){ const k = HABILIDADES[x]; comp = compHab(p, x); mod = modOf(d.sc[k]) + (comp ? d.prof : 0); nombre = x; }
-  else if (clase === "sv"){ comp = d.sv.includes(x); mod = modOf(d.sc[x]) + (comp ? d.prof : 0); nombre = `Salvación de ${AB_N[x]}`; }
-  else if (clase === "car"){ mod = modOf(d.sc[x]); nombre = AB_N[x]; }
-  else if (clase === "ini"){ mod = d.ini; nombre = "Iniciativa"; }
-  else { const car = x === "MAG" ? conMagia(p) : x; mod = modOf(d.sc[car]) + d.prof; nombre = `Ataque (${ATQ_CORTO[x]})`; }
-  const total = v + mod, natTxt = v === 20 ? " (¡20 natural!)" : v === 1 ? " (1 natural)" : "";
-  let t = `Dado físico de ${p.nombre} — ${nombre}${comp ? " (competente)" : ""}: d20 [${v}] ${sgn(mod) || "+0"} = **${total}**${natTxt}`;
+  const { mod, nombre, comp, car } = modTirada(p, tipo), [clase, x] = tipo.split(":"), total = v + mod;
+  let t = `Dado físico de ${p.nombre} — ${nombre}${comp ? " (competente)" : ""}: d20 [${v}] ${sgn(mod) || "+0"} = **${total}**${v === 20 ? " (¡20 natural!)" : v === 1 ? " (1 natural)" : ""}`;
   if (clase === "ini"){
     if (!cb(c).activo){ toast("La iniciativa se apunta cuando el combate ha empezado."); return; }
     return editarCombate(c, k => { const e = k.orden.find(o => o.id === p.id); if (e) e.dado = v; }, [{ r:"sys", t }]);
@@ -327,7 +465,7 @@ async function tiradaFisicaDM(c){
     t += ` contra ${e.nombre} (CA ${e.ca}): ${impacta ? (v === 20 ? "**¡crítico!**" : "**impacta**.") : "falla."}`;
     if (impacta){
       const dd = +$("#pf-dano").value; if (!Number.isInteger(dd) || dd < 1){ toast("Escribe cuánto suman los dados de daño."); return; }
-      const dm = Math.max(0, dd + (x === "MAG" ? 0 : modOf(d.sc[x]))); t += ` Daño: ${dd}${x === "MAG" ? "" : " " + (sgn(modOf(d.sc[x])) || "+0")} = **${dm}**${v === 20 ? " (con el crítico se tiran los dados de daño dobles)" : ""}.`;
+      const md = x === "MAG" ? 0 : modOf(derive(p).sc[car]), dm = Math.max(0, dd + md); t += ` Daño: ${dd} ${sgn(md) || "+0"} = **${dm}**.`;
       S.busy = true;
       try { const nuevo = await aplicarDano(c, e.id, dm); await anadirLog(c, [{ r:"sys", t:t + " " + trasDano(c, e.id, nuevo) }]); } catch (er) { toast(esc(errorTexto(er))); }
       S.busy = false; render(); return;
@@ -337,10 +475,11 @@ async function tiradaFisicaDM(c){
   try { await anadirLog(c, [{ r:"sys", t }]); } catch (er) { toast(esc(errorTexto(er))); }
   S.busy = false; render();
 }
+
 async function cambiarDadosFisicos(c, on){
   try {
     const f = await q(sb.from("dm_partidas").select("datos").eq("id", c.id).single());
-    await guardar(sb.from("dm_partidas").update({ datos:{ ...(f.datos || {}), dadosFisicos:on } }).eq("id", c.id), on ? "Dados físicos activados: la app preguntará qué ha salido." : "La app vuelve a tirar los dados.");
+    await guardar(sb.from("dm_partidas").update({ datos:{ ...(f.datos || {}), dadosFisicos:on } }).eq("id", c.id), on ? "Dados físicos activados: cada jugador escribe lo que saca en su panel." : "La app vuelve a tirar los dados.");
     c.dadosFisicos = on;
   } catch {}
   render();
@@ -362,6 +501,11 @@ document.addEventListener("click", (ev) => {
     case "cb-terminar": confirmar(t, () => terminarCombate(c), "Sí, terminar"); break;
     case "cb-atacar-en": ataqueEnemigo(c); break;
     case "cb-atacar-pj": ataqueJugador(c); break;
+    case "cb-dano-pj": { const a = S.atq; if (!a) break; let dmg; try { dmg = tirarCon(c, a.dn, "Daño", "normal", $("#fa-dv")?.value); } catch (e) { toast(esc(e.message)); break; } publicarAtaque(c, a, dmg); } break;
+    case "cb-atq-no": S.atq = null; render(); break;
+    case "cb-pet": { const req = pendientesDe(c).find(r => r.key === t.dataset.key); if (req) resolverPeticion(c, req, $(`[data-pet-val="${t.dataset.key}"]`)?.value); } break;
+    case "cb-ini": iniciativaJugador(c, t.dataset.pj, $(`[data-ini-val="${t.dataset.pj}"]`)?.value); break;
+    case "cb-libre": tiradaLibre(c); break;
     case "cb-dano": case "cb-curar": { const obj = $("#cb-obj").value, n = Math.max(1, +$("#cb-cant-pg").value || 1), cura = t.dataset.act === "cb-curar";
         const nom = pjById(obj)?.nombre || cb(c).orden.find(e => e.id === obj)?.nombre || "";
         conDano(c, obj, cura ? -n : n, cura ? `${nom} recupera ${n} PG.` : `${nom} recibe ${n} de daño.`); } break;
@@ -372,4 +516,9 @@ document.addEventListener("change", (ev) => {
   const t = ev.target, c = partida(S.playId); if (!c) return;
   if (t.matches("[data-cb-dado]")){ const v = t.value === "" ? null : Math.max(1, Math.min(20, Math.round(+t.value))); editarCombate(c, k => { const e = k.orden.find(o => o.id === t.dataset.cbDado); if (e) e.dado = v; }); }
   if (t.id === "opt-fisicos") cambiarDadosFisicos(c, t.checked);
+});
+document.addEventListener("keydown", (ev) => {
+  // Enter en un cuadro de dado pulsa su botón
+  if (ev.key !== "Enter" || !ev.target.matches?.(".dado-in")) return;
+  ev.preventDefault(); ev.target.closest(".accion,.row,.panel")?.querySelector("[data-act^='cb-']")?.click();
 });
