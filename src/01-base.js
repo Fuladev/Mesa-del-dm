@@ -62,7 +62,7 @@ const S = {
   perfiles:{}, facciones:[], personajes:[], partidas:[], participantes:[], asesor:{},
   edit:null, verPj:null, editFac:null, verFac:null, campSel:null, playId:null, dmId:null,
   busy:false, err:"", trayMode:"normal", hist:[], camForm:null, draft:"",
-  pjFiltro:"mios", facFiltro:"todas", spoilers:false, pending:false
+  pjFiltro:"mios", facFiltro:"todas", spoilers:false, pending:false, habla:{}
 };
 
 /* ==================== búsquedas ==================== */
@@ -72,7 +72,8 @@ const pjById = id => S.personajes.find(p => p.id === id);
 const misPjs = () => S.personajes.filter(p => p.dueno === S.me);
 const partida = id => S.partidas.find(p => p.id === id);
 const participantesDe = pid => S.participantes.filter(x => x.partida_id === pid);
-const miParticipacion = pid => S.participantes.find(x => x.partida_id === pid && x.usuario_id === S.me);
+const misParticipaciones = pid => S.participantes.filter(x => x.partida_id === pid && x.usuario_id === S.me);
+const miParticipacion = pid => misParticipaciones(pid)[0];
 const grupoDe = pid => participantesDe(pid).map(x => pjById(x.personaje_id)).filter(Boolean);
 const puedoJugar = c => c && (c.creador === S.me || !!miParticipacion(c.id));
 function ownerChip(uid){ return `<span class="owner ${uid===S.me?"me":""}"><i></i>${uid===S.me?"Tú":esc(nombreUsuario(uid))}</span>`; }
@@ -107,6 +108,17 @@ function derive(pj){
   if (c.ca === "barb"){ caAuto = 10 + des + con; caTxt = "10 + DES + CON (defensa sin armadura)"; }
   if (c.ca === "monk"){ caAuto = 10 + des + modOf(sc.SAB); caTxt = "10 + DES + SAB (defensa sin armadura)"; }
   return { sc, pg, ca: pj.ca ? +pj.ca : caAuto, caTxt: pj.ca ? "fijada a mano según tu armadura" : caTxt, prof: prof(lvl), ini: des, vel: r.v || 30, sv: c.sv || [], dado: c.d, raza: r };
+}
+// Avisos de fichas que perjudican al jugador sin que se dé cuenta
+const SIN_ARMADURA = ["Mago","Hechicero","Monje","Bárbaro"];
+function avisosPJ(p){
+  const c = CLASES[p.clase], out = []; if (!c) return out;
+  const d = derive(p), k = c.pri[0];
+  if (p.metodo === "puntos"){ const usados = AB.reduce((a,x) => a + (PB_COST[p.base?.[x]] ?? 0), 0); if (usados < 27) out.push(`Te quedan ${27 - usados} de 27 puntos sin gastar en las características.`); }
+  const porEncima = AB.filter(x => d.sc[x] > d.sc[k]).length;
+  if (porEncima >= 2 || d.sc[k] < 12) out.push(`Como ${p.clase.toLowerCase()}, tu característica más importante es ${AB_N[k]} y ahora tiene ${d.sc[k]} (${fm(modOf(d.sc[k]))}). Ponle una de tus puntuaciones más altas${p.metodo === "puntos" ? "" : " o pulsa «Repartir según la clase»"}.`);
+  if (!p.ca && !SIN_ARMADURA.includes(p.clase)) out.push("No has escrito la CA de tu armadura, así que se usa 10 + DES. Si llevas armadura, escríbela en «CA con armadura».");
+  return out;
 }
 function facResumen(f){
   if (!f) return "";

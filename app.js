@@ -62,7 +62,7 @@ const S = {
   perfiles:{}, facciones:[], personajes:[], partidas:[], participantes:[], asesor:{},
   edit:null, verPj:null, editFac:null, verFac:null, campSel:null, playId:null, dmId:null,
   busy:false, err:"", trayMode:"normal", hist:[], camForm:null, draft:"",
-  pjFiltro:"mios", facFiltro:"todas", spoilers:false, pending:false
+  pjFiltro:"mios", facFiltro:"todas", spoilers:false, pending:false, habla:{}
 };
 
 /* ==================== búsquedas ==================== */
@@ -72,7 +72,8 @@ const pjById = id => S.personajes.find(p => p.id === id);
 const misPjs = () => S.personajes.filter(p => p.dueno === S.me);
 const partida = id => S.partidas.find(p => p.id === id);
 const participantesDe = pid => S.participantes.filter(x => x.partida_id === pid);
-const miParticipacion = pid => S.participantes.find(x => x.partida_id === pid && x.usuario_id === S.me);
+const misParticipaciones = pid => S.participantes.filter(x => x.partida_id === pid && x.usuario_id === S.me);
+const miParticipacion = pid => misParticipaciones(pid)[0];
 const grupoDe = pid => participantesDe(pid).map(x => pjById(x.personaje_id)).filter(Boolean);
 const puedoJugar = c => c && (c.creador === S.me || !!miParticipacion(c.id));
 function ownerChip(uid){ return `<span class="owner ${uid===S.me?"me":""}"><i></i>${uid===S.me?"Tú":esc(nombreUsuario(uid))}</span>`; }
@@ -107,6 +108,17 @@ function derive(pj){
   if (c.ca === "barb"){ caAuto = 10 + des + con; caTxt = "10 + DES + CON (defensa sin armadura)"; }
   if (c.ca === "monk"){ caAuto = 10 + des + modOf(sc.SAB); caTxt = "10 + DES + SAB (defensa sin armadura)"; }
   return { sc, pg, ca: pj.ca ? +pj.ca : caAuto, caTxt: pj.ca ? "fijada a mano según tu armadura" : caTxt, prof: prof(lvl), ini: des, vel: r.v || 30, sv: c.sv || [], dado: c.d, raza: r };
+}
+// Avisos de fichas que perjudican al jugador sin que se dé cuenta
+const SIN_ARMADURA = ["Mago","Hechicero","Monje","Bárbaro"];
+function avisosPJ(p){
+  const c = CLASES[p.clase], out = []; if (!c) return out;
+  const d = derive(p), k = c.pri[0];
+  if (p.metodo === "puntos"){ const usados = AB.reduce((a,x) => a + (PB_COST[p.base?.[x]] ?? 0), 0); if (usados < 27) out.push(`Te quedan ${27 - usados} de 27 puntos sin gastar en las características.`); }
+  const porEncima = AB.filter(x => d.sc[x] > d.sc[k]).length;
+  if (porEncima >= 2 || d.sc[k] < 12) out.push(`Como ${p.clase.toLowerCase()}, tu característica más importante es ${AB_N[k]} y ahora tiene ${d.sc[k]} (${fm(modOf(d.sc[k]))}). Ponle una de tus puntuaciones más altas${p.metodo === "puntos" ? "" : " o pulsa «Repartir según la clase»"}.`);
+  if (!p.ca && !SIN_ARMADURA.includes(p.clase)) out.push("No has escrito la CA de tu armadura, así que se usa 10 + DES. Si llevas armadura, escríbela en «CA con armadura».");
+  return out;
 }
 function facResumen(f){
   if (!f) return "";
@@ -599,8 +611,8 @@ function vInicio(){
     <div class="paths">
       <a class="path" href="#personajes"><span class="step">Paso 1</span><h3>Crea tu personaje</h3><p>Tus fichas y las de los demás, cada una con el nombre de su jugador.</p><span class="chips"><span class="chip">${mios} tuyo${mios===1?"":"s"}</span><span class="chip">${S.personajes.length} en total</span></span></a>
       <a class="path" href="#facciones"><span class="step">Mundo compartido</span><h3>Razas y facciones</h3><p>Inventa pueblos y organizaciones. Todos pueden usarlas; solo quien las crea puede editarlas.</p><span class="chips"><span class="chip">${S.facciones.length} creadas</span></span></a>
-      <a class="path" href="#campanas"><span class="step">Paso 2</span><h3>Partidas</h3><p>Genera una campaña y que cada jugador se una con uno de sus personajes.</p><span class="chips"><span class="chip">${S.partidas.length} partida${S.partidas.length===1?"":"s"}</span></span></a>
-      <a class="path" href="#jugar"><span class="step">Paso 3</span><h3>A jugar</h3><p>La IA hace de DM y os pide las tiradas, o asesora en privado a vuestro DM.</p></a>
+      <a class="path" href="#campanas"><span class="step">Paso 2</span><h3>Partidas</h3><p>Genera o escribe una campaña y que cada jugador se una con uno o varios de sus personajes.</p><span class="chips"><span class="chip">${S.partidas.length} partida${S.partidas.length===1?"":"s"}</span></span></a>
+      <a class="path" href="#jugar"><span class="step">Paso 3</span><h3>A jugar</h3><p>La IA hace de DM, o lo hace alguien de la mesa: narra en el chat, pide las tiradas y la IA le asesora en privado.</p></a>
     </div>
     <div class="panel">
       <div class="panel-h"><h2>¿Primera vez?</h2><a class="btn" href="#dados">Abrir la wiki de dados</a></div>
@@ -628,12 +640,13 @@ function vPersonajes(){
       : (Object.keys(otros).length ? Object.entries(otros).map(([uid, list]) => `<div style="display:grid;gap:10px"><div class="group-h"><h2 style="font-size:1.3rem">${esc(nombreUsuario(uid))}</h2><span class="small muted">${list.length} personaje${list.length===1?"":"s"}</span></div><div class="cards">${list.map(cardPJ).join("")}</div></div>`).join("") : `<div class="empty"><p>Todavía nadie más ha creado personajes. Invita a tus amigos a registrarse.</p></div>`)}
   </section>`;
 }
+const avisosHtml = p => { const a = avisosPJ(p); return a.length ? `<div class="avisos">${a.map(t => `<p>${esc(t)}</p>`).join("")}</div>` : ""; };
 function cardPJ(p){
-  const d = derive(p), fac = p.faccion_id ? facById(p.faccion_id) : null, mio = p.dueno === S.me;
+  const d = derive(p), fac = p.faccion_id ? facById(p.faccion_id) : null, mio = p.dueno === S.me, nAv = mio ? avisosPJ(p).length : 0;
   return `<article class="pj">
     <div class="pj-h"><div><h3>${esc(p.nombre || "Sin nombre")}</h3><div class="small muted">${esc(d.raza.nombre)} · ${esc(p.clase)} · nivel ${p.nivel}${fac?` · ${esc(fac.nombre)}`:""}</div></div>${ownerChip(p.dueno)}</div>
     <div class="stats">${AB.map(k=>`<div class="stat"><span class="k">${k}</span><span class="m">${fm(modOf(d.sc[k]))}</span><span class="s">${d.sc[k]}</span></div>`).join("")}</div>
-    <div class="chips"><span class="chip acc">PG ${d.pg}</span><span class="chip acc">CA ${d.ca}</span><span class="chip">Competencia ${fm(d.prof)}</span><span class="chip">Velocidad ${d.vel} pies</span></div>
+    <div class="chips"><span class="chip acc">PG ${d.pg}</span><span class="chip acc">CA ${d.ca}</span><span class="chip">Competencia ${fm(d.prof)}</span><span class="chip">Velocidad ${d.vel} pies</span>${nAv?`<span class="chip warn">Revisa la ficha (${nAv} aviso${nAv===1?"":"s"})</span>`:""}</div>
     ${p.historia?`<p class="small muted">${esc(p.historia.slice(0,160))}${p.historia.length>160?"…":""}</p>`:""}
     <div class="row">${mio ? `<button class="btn sm" data-act="pj-editar" data-id="${p.id}">Ver y editar</button><span data-confirm="${p.id}"><button class="btn sm ghost" data-act="pj-borrar" data-id="${p.id}">Borrar</button></span>` : `<button class="btn sm" data-act="pj-ver" data-id="${p.id}">Ver ficha</button>`}</div>
   </article>`;
@@ -644,7 +657,7 @@ function vFicha(p){
   return `<section class="view">
     <div class="panel-h"><div style="display:grid;gap:6px"><span class="label">${esc(d.raza.nombre)} · ${esc(p.clase)} · nivel ${p.nivel}</span><h1>${esc(p.nombre)}</h1>${ownerChip(p.dueno)}</div><button class="btn ghost" data-act="pj-volver">Volver</button></div>
     <div class="panel"><div class="stats">${AB.map(k=>`<div class="stat"><span class="k">${k}</span><span class="m">${fm(modOf(d.sc[k]))}</span><span class="s">${d.sc[k]}</span></div>`).join("")}</div>
-    <div class="chips"><span class="chip acc">PG ${d.pg}</span><span class="chip acc">CA ${d.ca}</span><span class="chip">Iniciativa ${fm(d.ini)}</span><span class="chip">Competencia ${fm(d.prof)}</span><span class="chip">Velocidad ${d.vel} pies</span></div></div>
+    <div class="chips"><span class="chip acc">PG ${d.pg}</span><span class="chip acc">CA ${d.ca}</span><span class="chip">Iniciativa ${fm(d.ini)}</span><span class="chip">Competencia ${fm(d.prof)}</span><span class="chip">Velocidad ${d.vel} pies</span></div>${avisosHtml(p)}</div>
     <div class="panel"><dl class="kv">${kv.map(([k,v])=>`<dt>${k}</dt><dd>${esc(v)}</dd>`).join("")}</dl></div>
   </section>`;
 }
@@ -699,6 +712,7 @@ function vEditor(){
       </div>
       <p class="small muted">${p.metodo==="array"?"Reparte 15, 14, 13, 12, 10 y 8. Es el método más sencillo y equilibrado para empezar.":p.metodo==="puntos"?"Compras cada puntuación con 27 puntos. Te deja afinar el personaje a tu gusto.":"Para cada valor se tiran 4d6 y se descarta el dado más bajo. Más emocionante y más azaroso."}</p>
       ${abilUI}
+      ${avisosHtml(p)}
       <div class="abil-grid">${AB.map(k=>{
         const base = p.base[k], bonus = +r.b[k]||0, fin = base + bonus;
         const ctrl = p.metodo==="puntos"
@@ -950,19 +964,19 @@ function vCampanas(){
     </div>
     <div class="panel">
       <h2>Partidas de la mesa</h2>
-      ${S.partidas.length ? `<div class="camp-list">${S.partidas.map(c => { const yo = miParticipacion(c.id), n = participantesDe(c.id).length; return `<div class="camp-item"><div style="display:grid;gap:4px"><h3>${esc(c.titulo)}</h3><div class="small muted">${esc(c.tono||"")} · ${c.modo==="humano"?"DM propio":"IA como DM"} · ${n} jugador${n===1?"":"es"} ${c.ejemplo?'· <span class="tag-ej">ejemplo</span>':""}</div><div class="row">${ownerChip(c.creador)}${yo?`<span class="small">Juegas con <b>${esc(pjById(yo.personaje_id)?.nombre||"tu personaje")}</b></span>`:""}</div></div>
-        <div class="row"><button class="btn sm" data-act="camp-ver" data-id="${c.id}">${yo||c.creador===S.me?"Abrir":"Ver y unirme"}</button>${puedoJugar(c)?`<button class="btn sm primary" data-act="${c.modo==="humano"?"ir-asistente":"ir-jugar"}" data-id="${c.id}">${c.modo==="humano"?"Asistente del DM":"Jugar"}</button>`:""}</div></div>`; }).join("")}</div>`
+      ${S.partidas.length ? `<div class="camp-list">${S.partidas.map(c => { const mias = misParticipaciones(c.id), yo = mias.length > 0, n = participantesDe(c.id).length; return `<div class="camp-item"><div style="display:grid;gap:4px"><h3>${esc(c.titulo)}</h3><div class="small muted">${esc(c.tono||"")} · ${c.modo==="humano"?"DM propio":"IA como DM"} · ${n} personaje${n===1?"":"s"} ${c.ejemplo?'· <span class="tag-ej">ejemplo</span>':""}</div><div class="row">${ownerChip(c.creador)}${yo?`<span class="small">Juegas con <b>${mias.map(x => esc(pjById(x.personaje_id)?.nombre||"tu personaje")).join(", ")}</b></span>`:""}</div></div>
+        <div class="row"><button class="btn sm" data-act="camp-ver" data-id="${c.id}">${yo||c.creador===S.me?"Abrir":"Ver y unirme"}</button>${puedoJugar(c)?`<button class="btn sm primary" data-act="ir-jugar" data-id="${c.id}">Jugar</button>`:""}</div></div>`; }).join("")}</div>`
         : `<div class="empty"><p>Todavía no hay partidas. Genera una arriba o carga la partida de ejemplo desde Inicio.</p></div>`}
     </div>
   </section>`;
 }
 function vCampDetalle(c){
-  const soyCreador = c.creador === S.me, yo = miParticipacion(c.id), mios = misPjs();
+  const soyCreador = c.creador === S.me, parts = participantesDe(c.id);
+  const libres = misPjs().filter(p => !parts.some(x => x.personaje_id === p.id));
   const verSecretos = soyCreador && S.spoilers;
-  const parts = participantesDe(c.id);
   return `<section class="view camp">
     <div class="panel-h"><div style="display:grid;gap:6px"><span class="label">${esc(c.ambiente||"")} · ${esc(c.tono||"")}</span><h1>${esc(c.titulo)}</h1>${ownerChip(c.creador)}</div>
-      <div class="row"><button class="btn ghost" data-act="camp-volver">Todas las partidas</button>${puedoJugar(c)?`<button class="btn" data-act="ir-asistente" data-id="${c.id}">Asistente del DM</button><button class="btn primary" data-act="ir-jugar" data-id="${c.id}">Jugar con la IA</button>`:""}</div></div>
+      <div class="row"><button class="btn ghost" data-act="camp-volver">Todas las partidas</button>${puedoJugar(c)?`<button class="btn" data-act="ir-asistente" data-id="${c.id}">Asistente del DM</button><button class="btn primary" data-act="ir-jugar" data-id="${c.id}">Ir a la mesa</button>`:""}</div></div>
     <div class="panel"><h3>El gancho</h3><p>${esc(c.gancho)}</p>
       ${soyCreador ? `<label class="switch"><input type="checkbox" data-act="spoilers" ${S.spoilers?"checked":""}> Mostrar la información secreta del DM (sinopsis, secretos y final)</label>` : `<p class="small muted">El resto de la campaña es secreto: lo irás descubriendo al jugar.</p>`}</div>
     ${verSecretos ? `
@@ -975,12 +989,12 @@ function vCampDetalle(c){
       <div class="panel"><h2>Giros y consejos</h2><ul>${(c.giros||[]).map(g=>`<li>${esc(g)}</li>`).join("")}${(c.consejosDM||[]).map(g=>`<li class="muted">${esc(g)}</li>`).join("")}</ul></div>
     </div>`:""}` : ""}
     <div class="panel">
-      <div class="panel-h"><h2>Jugadores</h2><span class="small muted">Un personaje por jugador</span></div>
-      ${parts.length ? parts.map(x => { const p = pjById(x.personaje_id); return `<div class="part"><div style="display:grid;gap:2px"><b>${esc(p?.nombre || "Personaje borrado")}</b><span class="small muted">${p?esc(derive(p).raza.nombre)+" "+esc(p.clase)+" nivel "+p.nivel:""}</span></div><div class="row">${ownerChip(x.usuario_id)}${soyCreador && x.usuario_id!==S.me?`<button class="btn sm ghost" data-act="part-quitar" data-u="${x.usuario_id}">Quitar</button>`:""}</div></div>`; }).join("") : `<p class="small muted">Nadie se ha unido todavía.</p>`}
+      <div class="panel-h"><h2>Jugadores</h2><span class="small muted">Cada jugador puede llevar uno o varios personajes</span></div>
+      ${parts.length ? parts.map(x => { const p = pjById(x.personaje_id); return `<div class="part"><div style="display:grid;gap:2px"><b>${esc(p?.nombre || "Personaje borrado")}</b><span class="small muted">${p?esc(derive(p).raza.nombre)+" "+esc(p.clase)+" nivel "+p.nivel:""}</span></div><div class="row">${ownerChip(x.usuario_id)}${soyCreador || x.usuario_id===S.me?`<span data-confirm="quitar-${x.personaje_id}"><button class="btn sm ghost" data-act="part-quitar" data-pj="${x.personaje_id}">${x.usuario_id===S.me?"Sacar":"Quitar"}</button></span>`:""}</div></div>`; }).join("") : `<p class="small muted">Nadie se ha unido todavía.</p>`}
       <div class="row" style="align-items:end">
-        ${mios.length ? `<label class="field" style="min-width:220px"><span>${yo?"Cambiar tu personaje":"Únete con uno de tus personajes"}</span><select id="part-pj">${mios.map(p=>`<option value="${p.id}" ${yo?.personaje_id===p.id?"selected":""}>${esc(p.nombre)} (${esc(p.clase)} ${p.nivel})</option>`).join("")}</select></label>
-          <button class="btn primary" data-act="part-unir">${yo?"Cambiar personaje":"Unirme"}</button>${yo?`<span data-confirm="salir-${c.id}"><button class="btn ghost" data-act="part-salir">Salir de la partida</button></span>`:""}`
-          : `<p class="small">Necesitas un personaje para unirte. <a href="#personajes" data-act="pj-nuevo">Crea uno</a>.</p>`}
+        ${libres.length ? `<label class="field" style="min-width:220px"><span>${misParticipaciones(c.id).length?"Añade otro de tus personajes":"Únete con uno de tus personajes"}</span><select id="part-pj">${libres.map(p=>`<option value="${p.id}">${esc(p.nombre)} (${esc(p.clase)} ${p.nivel})</option>`).join("")}</select></label>
+          <button class="btn primary" data-act="part-unir">${misParticipaciones(c.id).length?"Añadir personaje":"Unirme"}</button>`
+          : misPjs().length ? `<p class="small muted">Todos tus personajes están ya en esta partida.</p>` : `<p class="small">Necesitas un personaje para unirte. <a href="#personajes" data-act="pj-nuevo">Crea uno</a>.</p>`}
       </div>
     </div>
     ${soyCreador ? `<div class="panel"><h3>Ajustes de quien creó la partida</h3><div class="row" style="align-items:end"><label class="field" style="max-width:260px"><span>Modo de juego</span><select id="cd-modo"><option value="ia" ${c.modo!=="humano"?"selected":""}>La IA es el DM</option><option value="humano" ${c.modo==="humano"?"selected":""}>Tenemos DM propio</option></select></label>
@@ -1025,47 +1039,64 @@ async function crearManual(){
 async function unirme(){
   const c = partida(S.campSel), pj = $("#part-pj")?.value; if (!c || !pj) return;
   try {
-    const r = await guardar(sb.from("dm_participantes").upsert({ partida_id:c.id, usuario_id:S.me, personaje_id:pj }, { onConflict:"partida_id,usuario_id" }).select().single(), "¡Estás dentro! Ya puedes jugar.");
-    S.participantes = [...S.participantes.filter(x => !(x.partida_id === c.id && x.usuario_id === S.me)), r];
+    const r = await guardar(sb.from("dm_participantes").insert({ partida_id:c.id, usuario_id:S.me, personaje_id:pj }).select().single(), `${esc(pjById(pj)?.nombre || "Tu personaje")} se une a la partida.`);
+    S.participantes = [...S.participantes.filter(x => !(x.partida_id === c.id && x.personaje_id === pj)), r];
   } catch {}
   render();
 }
-async function salirDe(pid, uid){
-  try { await guardar(sb.from("dm_participantes").delete().eq("partida_id", pid).eq("usuario_id", uid)); S.participantes = S.participantes.filter(x => !(x.partida_id === pid && x.usuario_id === uid)); } catch {}
+async function salirDe(pid, pjId){
+  try { await guardar(sb.from("dm_participantes").delete().eq("partida_id", pid).eq("personaje_id", pjId)); S.participantes = S.participantes.filter(x => !(x.partida_id === pid && x.personaje_id === pjId)); } catch {}
   render();
 }
 
-/* ==================== JUGAR (IA como DM) ==================== */
+/* ==================== JUGAR (la IA o una persona como DM) ==================== */
 function escribiendoOtro(c){ return c?.escribiendo && c.escribiendo !== S.me && c.escribiendoTs && (Date.now() - Date.parse(c.escribiendoTs) < 180000); }
+const dmHumano = c => c?.modo === "humano";
+// Con quién habla el usuario en esta partida: sus personajes y, si dirige con DM propio, la voz del DM
+function vocesDe(c){
+  const out = misParticipaciones(c.id).map(x => pjById(x.personaje_id)).filter(Boolean).map(p => ({ v:p.id, t:p.nombre }));
+  if (dmHumano(c) && c.creador === S.me) out.unshift({ v:"dm", t:"Dungeon Master (narrar)" });
+  if (!out.length && !dmHumano(c) && c.creador === S.me) out.push({ v:"grupo", t:"El grupo" });
+  return out;
+}
+function vozActual(c){ const vs = vocesDe(c), v = S.habla[c.id]; return vs.some(x => x.v === v) ? v : vs[0]?.v || null; }
 function vJugar(){
   let c = S.playId && partida(S.playId);
   const mias = S.partidas.filter(puedoJugar);
-  if (!c && mias.length){ c = mias.find(x => x.modo !== "humano") || mias[0]; S.playId = c.id; }
-  if (!c) return `<section class="view"><h1>Jugar con la IA</h1><div class="empty"><h3>Únete primero a una partida</h3><p>Ve a Partidas, abre una y únete con uno de tus personajes, o genera una nueva.</p><div class="row"><a class="btn primary" href="#campanas">Ir a Partidas</a><button class="btn gold" data-act="ejemplo">Cargar ejemplo</button></div></div></section>`;
-  const grupo = grupoDe(c.id), log = c.log || [], puedo = puedoJugar(c), otro = escribiendoOtro(c);
+  if (!c && mias.length){ c = mias[0]; S.playId = c.id; }
+  if (!c) return `<section class="view"><h1>Jugar</h1><div class="empty"><h3>Únete primero a una partida</h3><p>Ve a Partidas, abre una y únete con uno o varios de tus personajes, o crea una nueva.</p><div class="row"><a class="btn primary" href="#campanas">Ir a Partidas</a><button class="btn gold" data-act="ejemplo">Cargar ejemplo</button></div></div></section>`;
+  const humano = dmHumano(c), soyDM = humano && c.creador === S.me;
+  const grupo = grupoDe(c.id), log = c.log || [], voces = vocesDe(c), voz = vozActual(c), puedo = voces.length > 0, otro = !humano && escribiendoOtro(c);
   const bloqueado = S.busy || otro || !puedo;
+  const vacio = humano
+    ? `La mesa está preparada. ${grupo.length?`Juegan: ${grupo.map(p=>`${esc(p.nombre)} (${esc(nombreUsuario(p.dueno))})`).join(", ")}.`:"Aún no hay personajes en esta partida."} Dirige <b>${esc(nombreUsuario(c.creador))}</b>: cuando abra la escena, todos veréis la historia en vivo.`
+    : `La mesa está preparada. ${grupo.length?`Juegan: ${grupo.map(p=>`${esc(p.nombre)} (${esc(nombreUsuario(p.dueno))})`).join(", ")}.`:"Aún no hay personajes en esta partida."} Pulsa <b>Empezar la aventura</b> y el DM abrirá la escena. Todos los jugadores veréis la historia en vivo.`;
+  const ph = voz === "dm" ? "Narra la escena, da voz a los PNJ o pide una tirada. Ej.: La puerta cruje y un esqueleto se levanta del nicho." : "¿Qué hace tu personaje? Ej.: Thorga examina la puerta en busca de trampas.";
   return `<section class="view">
     <div class="table">
       <div class="chat">
         <div class="chat-h">
-          <div style="display:grid;gap:2px;min-width:0"><span class="label">La IA es vuestro Dungeon Master</span><h2 style="font-size:1.35rem">${esc(c.titulo)}</h2></div>
+          <div style="display:grid;gap:2px;min-width:0"><span class="label">${humano ? `Dirige ${esc(nombreUsuario(c.creador))} · DM propio` : "La IA es vuestro Dungeon Master"}</span><h2 style="font-size:1.35rem">${esc(c.titulo)}</h2></div>
           <select id="play-camp" aria-label="Cambiar de partida" style="width:auto;max-width:100%">${S.partidas.map(x=>`<option value="${x.id}" ${x.id===c.id?"selected":""}>${esc(x.titulo)}${puedoJugar(x)?"":" (no estás)"}</option>`).join("")}</select>
         </div>
         <div class="log" id="log">
-          ${log.length ? log.map((m,i)=>msgHtml(m,i,c)).join("") : `<div class="msg sys"><p>La mesa está preparada. ${grupo.length?`Juegan: ${grupo.map(p=>`${esc(p.nombre)} (${esc(nombreUsuario(p.dueno))})`).join(", ")}.`:"Aún no hay personajes en esta partida."} Pulsa <b>Empezar la aventura</b> y el DM abrirá la escena. Todos los jugadores veréis la historia en vivo.</p></div>`}
+          ${log.length ? log.map((m,i)=>msgHtml(m,i,c)).join("") : `<div class="msg sys"><p>${vacio}</p></div>`}
           <div id="live">${otro?`<div class="msg dm"><span class="who">Dungeon Master</span>${thinking(esc(nombreUsuario(c.escribiendo))+" ha hablado; el DM está preparando la respuesta…")}</div>`:""}</div>
         </div>
         <div class="composer">
           ${!puedo ? `<p class="small">Estás mirando. Para participar, <a href="#campanas" data-act="camp-ver" data-id="${c.id}">únete con uno de tus personajes</a>.</p>` : `
-          ${!log.length ? `<button class="btn primary" data-act="play-start" ${bloqueado?"disabled":""}>Empezar la aventura</button>` : ""}
-          <textarea id="play-in" placeholder="¿Qué hace tu personaje? Ej.: Thorga examina la puerta en busca de trampas." ${S.busy?"disabled":""}>${esc(S.draft||"")}</textarea>
+          ${!humano && !log.length ? `<button class="btn primary" data-act="play-start" ${bloqueado?"disabled":""}>Empezar la aventura</button>` : ""}
+          ${voces.length > 1 ? `<label class="field" style="max-width:320px"><span>Hablas como</span><select id="play-como">${voces.map(x=>`<option value="${x.v}" ${x.v===voz?"selected":""}>${esc(x.t)}</option>`).join("")}</select></label>` : ""}
+          ${voz === "dm" ? dmHerramientas(c, grupo, log) : ""}
+          <textarea id="play-in" placeholder="${esc(ph)}" ${voz === "dm" ? `style="min-height:120px"` : ""} ${S.busy?"disabled":""}>${esc(S.draft||"")}</textarea>
           <div class="row" style="justify-content:space-between">
-            <div class="row">
+            <div class="row">${voz === "dm" ? "" : humano ? `
+              <button class="btn sm ghost" data-act="play-hint" data-t="Hacemos un descanso corto.">Descanso corto</button>` : `
               <button class="btn sm ghost" data-act="play-hint" data-t="Describe con más detalle lo que vemos a nuestro alrededor.">Más detalles</button>
               <button class="btn sm ghost" data-act="play-hint" data-t="Como somos principiantes, ¿qué opciones tenemos ahora y qué tirada necesitaría cada una?">¿Qué podemos hacer?</button>
-              <button class="btn sm ghost" data-act="play-hint" data-t="Hacemos un descanso corto.">Descanso corto</button>
+              <button class="btn sm ghost" data-act="play-hint" data-t="Hacemos un descanso corto.">Descanso corto</button>`}
             </div>
-            <button class="btn primary" data-act="play-send" ${bloqueado?"disabled":""}>Enviar</button>
+            <button class="btn primary" data-act="play-send" ${bloqueado?"disabled":""}>${voz === "dm" ? "Narrar" : "Enviar"}</button>
           </div>`}
           <span id="play-st" class="small" style="color:var(--bad)"></span>
         </div>
@@ -1078,20 +1109,52 @@ function vJugar(){
             <div class="hp">${puedoPG?`<button data-act="hp" data-id="${p.id}" data-d="-1" aria-label="Quitar 1 PG">−</button>`:""}<span class="mono">${act}/${d.pg}</span>${puedoPG?`<button data-act="hp" data-id="${p.id}" data-d="1" aria-label="Sumar 1 PG">+</button>`:""}</div>
             <div class="hpbar"><i style="width:${pct}%;background:${pct<=25?"var(--bad)":pct<=50?"var(--warn)":"var(--ok)"}"></i></div></div>`; }).join("") : `<p class="small muted">Sin personajes todavía.</p>`}
         </div>
+        ${soyDM ? guionHtml(c) : ""}
         ${trayHtml()}
-        ${puedo ? `<div class="panel">
+        ${puedo || c.creador === S.me ? `<div class="panel">
           <h3>Opciones de la mesa</h3>
-          <label class="switch"><input type="checkbox" id="opt-aprendiz" ${c.aprendiz!==false?"checked":""}> Modo aprendiz: el DM explica las reglas</label>
-          <div class="row"><button class="btn sm" data-act="play-resumen" ${!bloqueado&&log.length>4?"":"disabled"}>Resumir historia hasta aquí</button>
+          ${humano ? `<p class="small muted">Sin IA: ${esc(nombreUsuario(c.creador))} narra y pide las tiradas aquí mismo.${soyDM ? ` En el <a href="#asistente" data-act="ir-asistente" data-id="${c.id}">Asistente del DM</a> tienes la iniciativa y tus notas.` : ""}</p>` : `
+          <label class="switch"><input type="checkbox" id="opt-aprendiz" ${c.aprendiz!==false?"checked":""}> Modo aprendiz: el DM explica las reglas</label>`}
+          <div class="row">${humano ? "" : `<button class="btn sm" data-act="play-resumen" ${!bloqueado&&log.length>4?"":"disabled"}>Resumir historia hasta aquí</button>`}
           ${c.creador===S.me?`<span data-confirm="reset-${c.id}"><button class="btn sm ghost" data-act="play-reset" data-id="${c.id}" ${log.length?"":"disabled"}>Reiniciar partida</button></span>`:""}</div>
-          ${c.resumen?`<details><summary class="small">Lo que recuerda el DM</summary><p class="small muted" style="margin-top:6px;white-space:pre-wrap">${esc(c.resumen)}</p></details>`:""}
+          ${c.resumen?`<details><summary class="small">${humano ? "Resumen de lo jugado" : "Lo que recuerda el DM"}</summary><p class="small muted" style="margin-top:6px;white-space:pre-wrap">${esc(c.resumen)}</p></details>`:""}
         </div>` : ""}
       </aside>
     </div>
   </section>`;
 }
+// Utilidades del DM humano: pedir una tirada a un personaje y tirar por los enemigos
+function dmHerramientas(c, grupo, log){
+  return `<div class="dm-tools">
+    ${!log.length && c.gancho ? `<div class="row"><button class="btn sm gold" data-act="dm-gancho">Empezar con el gancho de la partida</button></div>` : ""}
+    <div class="row">
+      <label class="field"><span>Pedir tirada a</span><select id="pt-pj">${grupo.map(p=>`<option value="${p.id}">${esc(p.nombre)}</option>`).join("")}</select></label>
+      <label class="field"><span>Característica</span><select id="pt-car">${AB.map(k=>`<option value="${k}">${AB_N[k]}</option>`).join("")}</select></label>
+      <label class="field"><span>Motivo</span><input type="text" id="pt-motivo" placeholder="Percepción"></label>
+      <label class="field" style="max-width:90px"><span>CD</span><input type="number" id="pt-cd" min="1" max="30" value="12"></label>
+      <label class="switch small"><input type="checkbox" id="pt-comp"> Competente</label>
+      <button class="btn sm" data-act="dm-pedir" ${grupo.length?"":"disabled"}>Añadir petición</button>
+    </div>
+    <div class="row">
+      <label class="field"><span>Tirada del DM</span><input type="text" id="dt-not" placeholder="1d20+4" class="mono"></label>
+      <label class="field"><span>Por qué</span><input type="text" id="dt-motivo" placeholder="Ataque del esqueleto a Thorga"></label>
+      <button class="btn sm" data-act="dm-tirar">Tirar y mostrar</button>
+    </div>
+    <p class="small muted">La petición se añade a tu mensaje como un botón que el jugador pulsa para tirar. Las tiradas del DM se tiran aquí y todos ven el resultado.</p>
+  </div>`;
+}
+function guionHtml(c){
+  const actos = c.actos || [], pnjs = c.pnjs || [];
+  if (!c.sinopsis && !actos.length && !pnjs.length) return "";
+  return `<div class="panel guion"><details><summary>Tu guion (solo lo ves tú)</summary>
+    ${c.sinopsis?`<p style="white-space:pre-wrap">${esc(c.sinopsis)}</p>`:""}
+    ${actos.length?`<ol>${actos.map(a=>`<li><b>${esc(a.titulo)}:</b> ${esc(a.objetivo||"")}${a.encuentro?` <span class="muted">Encuentro: ${esc(a.encuentro)}</span>`:""}</li>`).join("")}</ol>`:""}
+    ${pnjs.length?`<ul>${pnjs.map(n=>`<li><b>${esc(n.nombre)}</b> (${esc(n.rol||"")})${n.secreto?`: <span class="muted">${esc(n.secreto)}</span>`:""}</li>`).join("")}</ul>`:""}
+    ${c.final?`<p><b>Final:</b> ${esc(c.final)}</p>`:""}
+  </details></div>`;
+}
 function msgHtml(m, i, c){
-  if (m.r === "dm") return `<div class="msg dm"><span class="who">Dungeon Master</span>${rich(m.t, {msgIdx:i, used:c.usados})}</div>`;
+  if (m.r === "dm") return `<div class="msg dm"><span class="who">${m.u ? "DM · " + esc(nombreUsuario(m.u)) : "Dungeon Master"}</span>${rich(m.t, {msgIdx:i, used:c.usados})}</div>`;
   if (m.r === "sys") return `<div class="msg sys">${rich(m.t)}</div>`;
   const pj = m.pj ? pjById(m.pj) : null;
   return `<div class="msg user"><span class="who">${esc(m.u ? nombreUsuario(m.u) : "El grupo")}${pj?" · "+esc(pj.nombre):""}</span>${rich(m.t)}</div>`;
@@ -1168,9 +1231,9 @@ async function enviarDM(texto){
   let c;
   try { c = partFromRow(await q(sb.from("dm_partidas").select("*").eq("id", S.playId).single())); } catch (e) { toast(esc(errorTexto(e))); return; }
   if (escribiendoOtro(c)){ toast("Otro jugador está esperando la respuesta del DM. Espera un momento."); return; }
-  const yo = miParticipacion(c.id);
+  const voz = vozActual(c), pjId = voz && voz !== "grupo" ? voz : null;
   try { await q(sb.from("dm_partidas").update({ escribiendo:S.me, escribiendo_ts:new Date().toISOString() }).eq("id", c.id)); } catch (e) { toast(esc(errorTexto(e))); return; }
-  if (texto) c.log.push({ r:"user", t:texto, u:S.me, pj:yo?.personaje_id || null, ts:Date.now() });
+  if (texto) c.log.push({ r:"user", t:texto, u:S.me, pj:pjId, ts:Date.now() });
   S.partidas = S.partidas.map(x => x.id === c.id ? c : x);
   S.draft = ""; S.busy = true; render();
   const live = $("#live"); live.innerHTML = `<div class="msg dm"><span class="who">Dungeon Master</span>${thinking("El DM está preparando la escena…")}</div>`;
@@ -1181,13 +1244,45 @@ async function enviarDM(texto){
     const r = await ia({ modo:"dm", system:reglasDM(c), messages:turnosDe(c), dados:true });
     for (const t of r.tiradas || []) c.log.push({ r:"sys", t:`Tirada del DM — ${t.motivo || ""} ${t.notacion}: ${t.detalle} = **${t.total}**${t.natural===20?" (¡20 natural!)":t.natural===1?" (1 natural)":""}`, ts:Date.now() });
     c.log.push({ r:"dm", t:r.texto.trim(), ts:Date.now() });
-  } catch (e) { err = iaMsg(e); }
+  } catch (e) { err = e?.code === "sin_clave" ? "La IA está desactivada en esta mesa, así que no habrá respuesta. Tu mensaje se ha guardado. Para jugar sin IA, quien creó la partida puede elegir «Tenemos DM propio» en Partidas y narrar desde aquí." : iaMsg(e); }
   recortar(c);
   try { await q(sb.from("dm_partidas").update({ log:c.log, resumen:c.resumen, resumen_idx:c.resumenIdx, usados:c.usados, escribiendo:null, escribiendo_ts:null }).eq("id", c.id)); }
   catch (e) { err ||= errorTexto(e); }
   S.partidas = S.partidas.map(x => x.id === c.id ? c : x);
   S.busy = false; render();
   if (err){ const st = $("#play-st"); if (st) st.textContent = err; }
+}
+// Mesa con DM propio: los mensajes se añaden al registro sin pasar por la IA
+async function anadirLog(c, msgs){
+  const log = await q(sb.rpc("dm_anadir_log", { p:c.id, msgs }));
+  c.log = log || c.log;
+  S.partidas = S.partidas.map(x => x.id === c.id ? c : x);
+}
+async function enviarHumano(texto){
+  const c = partida(S.playId); if (!c || S.busy) return;
+  const voz = vozActual(c); if (!voz) return;
+  S.busy = true;
+  try {
+    await anadirLog(c, [voz === "dm" ? { r:"dm", t:texto } : { r:"user", t:texto, pj:voz }]);
+    S.draft = "";
+  } catch (e) { toast(esc(errorTexto(e))); }
+  S.busy = false; render();
+}
+function dmPedirTirada(){
+  const p = pjById($("#pt-pj")?.value); if (!p) return;
+  const k = $("#pt-car").value, d = derive(p), comp = $("#pt-comp").checked, cd = +$("#pt-cd").value || 10;
+  const mod = modOf(d.sc[k]) + (comp ? d.prof : 0), motivo = $("#pt-motivo").value.trim() || AB_N[k];
+  const tag = `[[tirada: 1d20${mod ? (mod > 0 ? "+" : "-") + Math.abs(mod) : ""} | ${motivo} (${p.nombre}) | CD ${cd}]]`;
+  const box = $("#play-in"); box.value = (box.value.trim() ? box.value.trim() + "\n\n" : "") + tag; S.draft = box.value; box.focus();
+}
+async function dmTirar(){
+  const c = partida(S.playId), not = $("#dt-not").value.trim(), motivo = $("#dt-motivo").value.trim();
+  if (!c || !not) { toast("Escribe la tirada, por ejemplo 1d20+4."); return; }
+  let r; try { r = rollNotation(not); } catch (e) { toast(esc(e.message)); return; }
+  S.busy = true;
+  try { await anadirLog(c, [{ r:"sys", t:`Tirada del DM — ${motivo ? motivo + " " : ""}${not}: ${r.detalle} = **${r.total}**${r.crit?" (¡20 natural!)":r.pifia?" (1 natural)":""}` }]); }
+  catch (e) { toast(esc(errorTexto(e))); }
+  S.busy = false; render();
 }
 const pgPend = {};
 function cambiarPG(pjId, delta){
@@ -1437,13 +1532,15 @@ document.addEventListener("click", async (ev) => {
     case "camp-borrar": confirmar(t, async () => { if (await borrar("dm_partidas", id, "Partida borrada.")){ S.partidas = S.partidas.filter(c => c.id !== id); S.participantes = S.participantes.filter(x => x.partida_id !== id); S.campSel = null; } render(); }); break;
     case "spoilers": S.spoilers = t.checked; render(); break;
     case "part-unir": unirme(); break;
-    case "part-salir": confirmar(t, () => salirDe(S.campSel, S.me), "Sí, salir"); break;
-    case "part-quitar": salirDe(S.campSel, t.dataset.u); break;
+    case "part-quitar": confirmar(t, () => salirDe(S.campSel, t.dataset.pj), "Sí, sacar"); break;
     case "ir-jugar": S.playId = id; ir("#jugar"); break;
     case "ir-asistente": S.dmId = id; ir("#asistente"); break;
     // jugar
     case "play-start": enviarDM(""); break;
-    case "play-send": { const v = $("#play-in").value.trim(); if (!v){ $("#play-st").textContent = "Escribe qué hace tu personaje o tira los dados que pidió el DM."; break; } enviarDM(v); } break;
+    case "play-send": { const v = $("#play-in").value.trim(); if (!v){ $("#play-st").textContent = "Escribe qué hace tu personaje o tira los dados que pidió el DM."; break; } dmHumano(partida(S.playId)) ? enviarHumano(v) : enviarDM(v); } break;
+    case "dm-gancho": { const c = partida(S.playId), box = $("#play-in"); if (!c || !box) break; box.value = c.gancho + (box.value.trim() ? "\n\n" + box.value.trim() : "") + "\n\n¿Qué hacéis?"; S.draft = box.value; box.focus(); } break;
+    case "dm-pedir": dmPedirTirada(); break;
+    case "dm-tirar": dmTirar(); break;
     case "play-hint": { const box = $("#play-in"); if (!box) break; box.value = t.dataset.t; S.draft = box.value; box.focus(); } break;
     case "play-resumen": { const c = partida(S.playId); if (!c) break; S.busy = true; render();
         try { await resumir(c, true); await q(sb.from("dm_partidas").update({ resumen:c.resumen, resumen_idx:c.resumenIdx }).eq("id", c.id)); toast("Historia resumida. El DM la recordará."); }
@@ -1477,6 +1574,7 @@ document.addEventListener("change", async (ev) => {
   if (t.matches("[data-abil]")){ leerForm(); S.edit.base[t.dataset.abil] = +t.value; render(true); return; }
   if (["f-raza","f-clase","f-nivel","f-faccion"].includes(t.id)){ render(); return; }
   if (t.id === "play-camp"){ S.playId = t.value; render(); return; }
+  if (t.id === "play-como"){ S.habla[S.playId] = t.value; render(); return; }
   if (t.id === "dm-camp"){ S.dmId = t.value; render(); return; }
   if (t.id === "cd-modo"){ const c = partida(S.campSel); try { await guardar(sb.from("dm_partidas").update({ modo:t.value }).eq("id", c.id), "Modo cambiado."); c.modo = t.value; } catch {} render(); return; }
   if (t.id === "opt-aprendiz"){ const c = partida(S.playId); try { await guardar(sb.from("dm_partidas").update({ aprendiz:t.checked }).eq("id", c.id)); c.aprendiz = t.checked; } catch {} return; }
