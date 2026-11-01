@@ -7,6 +7,11 @@ const MODOS_HECHIZO = { ataque:"Tirada de ataque de conjuro", salvacion:"El obje
 const NIVEL_H = n => +n ? `Nivel ${n}` : "Truco";
 // Hechizos del SRD: [nombre, nivel, clases, modo, daño o curación, tipo de daño, salvación, mitad si la supera, suma el modificador, descripción]
 const _M = "Mago", _H = "Hechicero", _B = "Brujo", _C = "Clérigo", _D = "Druida", _Ba = "Bardo", _P = "Paladín", _E = "Explorador";
+// Estado que deja cada hechizo al impactar (o si el objetivo falla la salvación)
+const EFECTOS_H = { "Rayo de escarcha":{ estado:"Ralentizado", rondas:1 }, "Rayo de enfermedad":{ estado:"Envenenado", rondas:1 }, "Burla dañina":{ estado:"Asustado", rondas:1 },
+  "Dormir":{ estado:"Dormido", rondas:2 }, "Orden imperiosa":{ estado:"Derribado", rondas:1 }, "Causar miedo":{ estado:"Asustado", rondas:2 }, "Enmarañar":{ estado:"Apresado", rondas:2 },
+  "Retener persona":{ estado:"Paralizado", rondas:2 }, "Telaraña":{ estado:"Apresado", rondas:2 }, "Ceguera":{ estado:"Cegado", rondas:3 },
+  "Flecha ácida de Melf":{ estado:"Ardiendo", rondas:1, dano:"2d4", tipoDano:"ácido" }, "Bola de fuego":{ estado:"Ardiendo", rondas:1 }, "Relámpago":{ estado:"Aturdido", rondas:1 } };
 const HECHIZOS_SRD = [
   ["Rayo de fuego",0,[_M,_H],"ataque","1d10","fuego","",false,false,"Lanzas una mota de fuego a una criatura a 120 pies."],
   ["Rayo de escarcha",0,[_M,_H],"ataque","1d8","frío","",false,false,"Un haz helado; además reduce 10 pies la velocidad del objetivo."],
@@ -31,37 +36,45 @@ const HECHIZOS_SRD = [
   ["Curar heridas",1,[_Ba,_C,_D,_P,_E],"cura","1d8","","",false,true,"Tocas a una criatura y recupera PG."],
   ["Palabra curativa",1,[_Ba,_C,_D],"cura","1d4","","",false,true,"Una palabra a 60 pies que devuelve PG como acción adicional."],
   ["Escudo",1,[_M,_H],"utilidad","","","",false,false,"Reacción: +5 a la CA hasta tu siguiente turno."],
-  ["Dormir",1,[_Ba,_H,_M],"utilidad","5d8","","",false,false,"Duerme criaturas cuya suma de PG no supere el resultado."],
+  ["Dormir",1,[_Ba,_H,_M],"auto","","","",false,false,"Un sopor mágico: el objetivo se duerme y pierde sus turnos (despierta si le hieren, a criterio del DM)."],
+  ["Orden imperiosa",1,[_C,_P],"salvacion","","","SAB",false,false,"Una palabra de mando («¡Al suelo!»): si falla, cae derribado."],
+  ["Causar miedo",1,[_B,_M],"salvacion","","","SAB",false,false,"El objetivo se llena de terror y ataca con desventaja."],
+  ["Enmarañar",1,[_D],"salvacion","","","FUE",false,false,"Hierbas y raíces brotan y sujetan al objetivo."],
   ["Detectar magia",1,[_Ba,_C,_D,_M,_H,_P,_E],"utilidad","","","",false,false,"Sientes la magia a 30 pies durante 10 minutos."],
   ["Armadura de mago",1,[_M,_H],"utilidad","","","",false,false,"Tu CA pasa a ser 13 + DES durante 8 horas."],
   ["Rayo abrasador",2,[_M,_H],"ataque","2d6","fuego","",false,false,"Tres rayos de fuego (aquí, uno por tirada)."],
   ["Arma espiritual",2,[_C],"ataque","1d8","fuerza","",false,true,"Un arma flotante que ataca como acción adicional."],
   ["Romper",2,[_Ba,_H,_B,_M],"salvacion","3d8","trueno","CON",true,false,"Un estruendo que rompe objetos y hiere a quien esté cerca."],
+  ["Retener persona",2,[_Ba,_C,_D,_H,_B,_M],"salvacion","","","SAB",false,false,"El objetivo queda paralizado: no actúa y los ataques contra él tienen ventaja."],
+  ["Telaraña",2,[_M,_H],"salvacion","","","DES",false,false,"Telarañas pegajosas atrapan al objetivo."],
+  ["Ceguera",2,[_Ba,_C,_H,_M],"salvacion","","","CON",false,false,"El objetivo queda ciego."],
+  ["Flecha ácida de Melf",2,[_M],"ataque","4d4","ácido","",false,false,"Una flecha de ácido que sigue quemando en el siguiente turno."],
   ["Restablecimiento menor",2,[_Ba,_C,_D,_P,_E],"utilidad","","","",false,false,"Quita una enfermedad o un estado: cegado, ensordecido, paralizado o envenenado."],
   ["Bola de fuego",3,[_M,_H],"salvacion","8d6","fuego","DES",true,false,"Una explosión de 20 pies de radio."],
   ["Relámpago",3,[_M,_H],"salvacion","8d6","rayo","DES",true,false,"Una línea de 100 pies de rayo."],
   ["Espíritus guardianes",3,[_C],"salvacion","3d8","radiante","SAB",true,false,"Espíritus que hieren a los enemigos que se acercan."],
   ["Curar heridas en masa",5,[_Ba,_C,_D],"cura","3d8","","",false,true,"Hasta seis criaturas recuperan PG."]
-].map(([nombre, nivel, clases, modo, dano, tipoDano, sv, mitad, sumaMod, descripcion]) => ({ id:"srd:" + nombre, srd:true, nombre, nivel, clases, modo, dano, tipoDano, sv, mitad, sumaMod, descripcion }));
+].map(([nombre, nivel, clases, modo, dano, tipoDano, sv, mitad, sumaMod, descripcion]) => ({ id:"srd:" + nombre, srd:true, nombre, nivel, clases, modo, dano, tipoDano, sv, mitad, sumaMod, descripcion, efecto:EFECTOS_H[nombre] || null }));
 
 function hechizoFromRow(r){ return { ...(r.datos || {}), id:r.id, autor:r.autor, nombre:r.nombre, actualizado:r.actualizado }; }
 function hechizoToRow(h){ const { id, autor, nombre, actualizado, srd, ...datos } = h; return { nombre, datos }; }
 const catalogoHechizos = () => [...(S.hechizos || []), ...HECHIZOS_SRD];
 const hechizoById = id => catalogoHechizos().find(h => h.id === id);
 const puedeLanzar = (p, h) => lanzaConjuros(p) && (!h.clases?.length || h.clases.includes(p.clase));
-const efectoTxt = h => h.modo === "cura" ? `Cura ${h.dano || "?"}${h.sumaMod ? " + mod." : ""}` : h.dano ? `${h.dano}${h.sumaMod ? " + mod." : ""} ${h.tipoDano || ""}` : "—";
+const efectoTxt = h => (h.modo === "cura" ? `Cura ${h.dano || "?"}${h.sumaMod ? " + mod." : ""}` : h.dano ? `${h.dano}${h.sumaMod ? " + mod." : ""} ${h.tipoDano || ""}` : h.efecto?.estado ? "" : "—")
+  + (h.efecto?.estado ? `${h.dano ? " → " : ""}${h.efecto.estado} ${+h.efecto.rondas || 1}t` : "");
 const comoTxt = h => h.modo === "salvacion" ? `Salvación de ${AB_N[h.sv] || h.sv}${h.mitad ? " (mitad si la supera)" : ""}` : MODOS_HECHIZO[h.modo] || "";
 const hechizosDe = p => Array.isArray(p?.hechizos) ? p.hechizos : [];
 // Copia del hechizo que guarda el personaje (si luego se edita en el grimorio, la suya no cambia hasta que la vuelva a añadir)
-const copiaHechizo = h => ({ id:nuevoId(), hechizoId:h.id, nombre:h.nombre, nivel:+h.nivel || 0, modo:h.modo, dano:h.dano || "", tipoDano:h.tipoDano || "", sv:h.sv || "", mitad:!!h.mitad, sumaMod:!!h.sumaMod, descripcion:h.descripcion || "" });
+const copiaHechizo = h => ({ id:nuevoId(), hechizoId:h.id, nombre:h.nombre, nivel:+h.nivel || 0, modo:h.modo, dano:h.dano || "", tipoDano:h.tipoDano || "", sv:h.sv || "", mitad:!!h.mitad, sumaMod:!!h.sumaMod, descripcion:h.descripcion || "", efecto:h.efecto ? clone(h.efecto) : null });
 function magiaDe(p){ const d = derive(p), car = CAR_MAGIA[p.clase] || "INT", mod = modOf(d.sc[car]); return { car, mod, ataque:mod + d.prof, cd:8 + d.prof + mod }; }
 // Opciones de hechizo para el formulario de ataque
 function ataquesHechizo(p){
   if (!lanzaConjuros(p)) return [];
   const m = magiaDe(p);
-  return hechizosDe(p).filter(h => ["ataque","salvacion","auto"].includes(h.modo) && h.dano).map(h => ({
+  return hechizosDe(p).filter(h => ["ataque","salvacion","auto"].includes(h.modo) && (h.dano || h.efecto?.estado)).map(h => ({
     v:"h:" + h.id, nombre:h.nombre + (h.modo === "salvacion" ? ` (salv. ${h.sv} CD ${m.cd})` : h.modo === "auto" ? " (no falla)" : ""), corto:h.nombre, bono:h.modo === "ataque" ? m.ataque : 0,
-    dado:h.dano, mDano:h.sumaMod ? m.mod : 0, car:m.car, tipoDano:h.tipoDano, modo:h.modo, sv:h.sv, mitad:h.mitad, cd:m.cd, hechizo:true }));
+    dado:h.dano, mDano:h.sumaMod ? m.mod : 0, car:m.car, tipoDano:h.tipoDano, modo:h.modo, sv:h.sv, mitad:h.mitad, cd:m.cd, hechizo:true, efecto:h.efecto || null }));
 }
 
 /* ---------- lista de hechizos del personaje (ficha y mesa) ---------- */
@@ -93,7 +106,7 @@ async function lanzarHechizo(c, p, hid){
 /* ---------- Grimorio (vista) ---------- */
 function nuevoHechizo(base){
   const b = base || { nombre:"", nivel:0, clases:[], modo:"ataque", dano:"1d10", tipoDano:"fuego", sv:"DES", mitad:false, sumaMod:false, descripcion:"" };
-  return { id:null, autor:S.me, ...clone({ nombre:base ? b.nombre + " (variante)" : "", nivel:b.nivel, clases:b.clases || [], modo:b.modo, dano:b.dano, tipoDano:b.tipoDano || "fuego", sv:b.sv || "DES", mitad:!!b.mitad, sumaMod:!!b.sumaMod, descripcion:b.descripcion || "" }) };
+  return { id:null, autor:S.me, ...clone({ nombre:base ? b.nombre + " (variante)" : "", nivel:b.nivel, clases:b.clases || [], modo:b.modo, dano:b.dano, tipoDano:b.tipoDano || "fuego", sv:b.sv || "DES", mitad:!!b.mitad, sumaMod:!!b.sumaMod, descripcion:b.descripcion || "", efecto:b.efecto || null }) };
 }
 function vGrimorio(){
   if (S.editHechizo) return vHechizoEditor();
@@ -129,6 +142,7 @@ function vHechizoEditor(){
     </div>
     <div class="field"><span>Clases que pueden usarlo</span><div class="checks">${CLASES_LANZADORAS.map(k => `<label class="switch small"><input type="checkbox" class="hz-clase" value="${k}" ${h.clases?.includes(k) ? "checked" : ""}> ${k}</label>`).join("")}</div>
       <span class="small muted">Si no marcas ninguna, lo puede aprender cualquier clase que lance conjuros. Guerreros, bárbaros, monjes y pícaros no lanzan conjuros.</span></div>
+    ${h.modo === "cura" || h.modo === "utilidad" ? "" : `<h3>Estado que causa</h3>${efectoCampos(h.efecto, "hz", false)}<p class="small muted">Se aplica si el hechizo impacta o si el objetivo falla la salvación. Ejemplo: Retener persona → Paralizado 2 turnos.</p>`}
     <label class="field"><span>Descripción</span><textarea id="hz-descripcion" maxlength="600" placeholder="Qué hace, alcance, duración…">${esc(h.descripcion)}</textarea></label>
     <div class="row"><button class="btn primary" data-act="hz-guardar" ${S.busy ? "disabled" : ""}>Guardar hechizo</button>${h.id ? `<span data-confirm="${h.id}"><button class="btn ghost" data-act="hz-borrar" data-id="${h.id}">Borrar</button></span>` : ""}</div></div>
   </section>`;
@@ -139,12 +153,14 @@ function leerHechizo(){
   if ($("#hz-tipoDano")) h.tipoDano = $("#hz-tipoDano").value; if ($("#hz-sv")) h.sv = $("#hz-sv").value;
   if ($("#hz-mitad")) h.mitad = $("#hz-mitad").checked; if ($("#hz-sumaMod")) h.sumaMod = $("#hz-sumaMod").checked;
   h.clases = $$(".hz-clase").filter(x => x.checked).map(x => x.value);
+  if ($("#hz-est")) h.efecto = leerEfecto("hz");
 }
 async function guardarHechizo(){
   leerHechizo(); const h = S.editHechizo;
   if (h.nombre.length < 2){ toast("Ponle nombre al hechizo."); $("#hz-nombre")?.focus(); return; }
-  if (h.modo !== "utilidad" || h.dano){ if (!h.dano){ toast("Escribe los dados de daño o curación, por ejemplo 2d6."); $("#hz-dano")?.focus(); return; }
-    try { partesNot(h.dano); } catch (e) { toast(esc(e.message)); $("#hz-dano")?.focus(); return; } }
+  if (h.modo === "cura" || h.modo === "utilidad") h.efecto = null;
+  if (h.modo !== "utilidad" || h.dano){ if (!h.dano && !h.efecto){ toast("Escribe los dados de daño o curación (por ejemplo 2d6), o elige un estado que cause."); $("#hz-dano")?.focus(); return; }
+    if (h.dano) try { partesNot(h.dano); } catch (e) { toast(esc(e.message)); $("#hz-dano")?.focus(); return; } }
   if (h.modo === "cura" || h.modo === "utilidad") h.tipoDano = ""; if (h.modo !== "salvacion"){ h.sv = ""; h.mitad = false; }
   S.busy = true; render(true);
   try {
@@ -169,6 +185,9 @@ function editorEquipoHtml(p){
           <label class="field" style="max-width:80px"><span>+ daño</span><input type="number" data-f="bonoDano" min="-5" max="20" value="${+w.bonoDano || 0}" class="mono"></label>
           <label class="field" style="max-width:150px"><span>Se usa con</span><select data-f="car">${Object.entries(CAR_ARMA).map(([v, t]) => `<option value="${v}" ${v === w.car ? "selected" : ""}>${t.split(" (")[0].split(":")[0]}</option>`).join("")}</select></label>
           <label class="switch small"><input type="checkbox" data-f="equipada" ${o.equipada ? "checked" : ""}> Equipada</label>` : ""}
+        ${o.armadura ? `<label class="field" style="max-width:80px"><span>${o.armadura.cat === "escudo" ? "+ CA" : "CA base"}</span><input type="number" data-f="ca" min="0" max="25" value="${+o.armadura.ca || 0}" class="mono"></label>
+          <label class="field" style="max-width:80px"><span>Mágica +</span><input type="number" data-f="bono" min="0" max="5" value="${+o.armadura.bono || 0}" class="mono"></label>
+          <label class="switch small"><input type="checkbox" data-f="equipada" ${o.equipada ? "checked" : ""}> Puesta</label>` : ""}
         <label class="field"><span>Nota</span><input type="text" data-f="nota" maxlength="120" value="${esc(o.nota || "")}" placeholder="Opcional"></label>
         <button class="btn sm ghost" data-act="ed-obj-quitar" data-o="${k}" aria-label="Quitar ${esc(o.nombre)}">Quitar</button>
       </div></div>`; };
@@ -184,8 +203,8 @@ function editorEquipoHtml(p){
     <h3>Armas y objetos</h3>
     ${inv.objetos.length ? inv.objetos.map(objFila).join("") : `<p class="small muted">No lleva nada todavía.</p>`}
     <div class="row ed-add">
-      <label class="field"><span>Añadir</span><select id="ed-obj-tipo"><option value="objeto">Objeto</option><option value="pocion">Poción de curación (2d4+2)</option><option value="pocion-otra">Otra poción</option>${catalogoArmas().map(a => `<option value="arma:${esc(a.id)}">Arma: ${esc(a.nombre)} (${esc(resumenArma(a))})</option>`).join("")}</select></label>
-      <label class="field"><span>Nombre</span><input type="text" id="ed-obj-nom" maxlength="80" placeholder="Cuerda, antorcha, mapa…"></label>
+      <label class="field"><span>Añadir</span><select id="ed-obj-tipo"><option value="objeto">Objeto escrito a mano</option><option value="pocion-otra">Poción escrita a mano</option>${optsCatalogo()}</select></label>
+      <label class="field"><span>Nombre</span><input type="text" id="ed-obj-nom" maxlength="80" placeholder="Opcional si es del catálogo"></label>
       <label class="field" style="max-width:80px"><span>Cantidad</span><input type="number" id="ed-obj-cant" min="1" max="999" value="1" class="mono"></label>
       <button class="btn sm" data-act="ed-obj-anadir">Añadir</button>
     </div>
@@ -195,7 +214,7 @@ function editorEquipoHtml(p){
       ${hs.length ? hs.map(hzFila).join("") : `<p class="small muted">Sin hechizos todavía.</p>`}
       <div class="row ed-add"><label class="field"><span>Añadir hechizo</span><select id="ed-hz">${disp.length ? disp.sort((a, b) => (+a.nivel || 0) - (+b.nivel || 0) || a.nombre.localeCompare(b.nombre)).map(h => `<option value="${esc(h.id)}">${NIVEL_H(h.nivel)} · ${esc(h.nombre)} (${esc(efectoTxt(h))})</option>`).join("") : `<option value="">No quedan hechizos para esta clase</option>`}</select></label>
         <button class="btn sm" data-act="ed-hz-anadir" ${disp.length ? "" : "disabled"}>Añadir</button></div>
-      <p class="small muted">Solo aparecen los hechizos que puede usar un ${esc(p.clase.toLowerCase())}. Puedes crear más en <a href="#hechizos">Hechizos</a>.</p>`
+      <p class="small muted">Solo aparecen los hechizos que puede usar un ${esc(p.clase.toLowerCase())}. Puedes crear más en <a href="#catalogo">el catálogo</a>.</p>`
       : `<p class="small muted">Los ${esc(String(p.clase).toLowerCase())}s no lanzan conjuros, así que no pueden tener hechizos.${hs.length ? ` <b>Al guardar se quitarán los ${hs.length} hechizos que tenía.</b>` : ""}</p>`}
   </div>`;
 }
@@ -206,7 +225,8 @@ function leerEquipo(p){
   const oro = $("#f-oro"); if (oro) inv.oro = Math.max(0, +oro.value || 0);
   for (const row of $$("[data-ed-obj]")){ const o = inv.objetos.find(x => x.id === row.dataset.edObj); if (!o) continue;
     for (const el of $$("[data-f]", row)){ const f = el.dataset.f, v = el.type === "checkbox" ? el.checked : el.value;
-      if (["dado","bonoAt","bonoDano","car"].includes(f)){ if (o.arma) o.arma[f] = f.startsWith("bono") ? (+v || 0) : String(v).trim() || o.arma[f]; }
+      if (["ca","bono"].includes(f)){ if (o.armadura) o.armadura[f] = Math.max(0, +v || 0); }
+      else if (["dado","bonoAt","bonoDano","car"].includes(f)){ if (o.arma) o.arma[f] = f.startsWith("bono") ? (+v || 0) : String(v).trim() || o.arma[f]; }
       else if (f === "cant") o.cant = Math.max(1, Math.min(999, Math.round(+v || 1)));
       else if (f === "equipada") o.equipada = v;
       else o[f] = String(v).trim() || (f === "nombre" ? o.nombre : ""); } }
@@ -235,8 +255,9 @@ document.addEventListener("click", (ev) => {
     case "hz-lanzar": { const c = partida(S.playId), p = pjById(t.dataset.pj); if (c && p) lanzarHechizo(c, p, t.dataset.h); } break;
     // editor del personaje
     case "ed-obj-anadir": { leerForm(); const p = S.edit, tipo = $("#ed-obj-tipo").value, nom = $("#ed-obj-nom").value.trim(), cant = Math.max(1, Math.min(999, Math.round(+$("#ed-obj-cant").value || 1))), inv = invDe(p);
-        if (tipo.startsWith("arma:")){ const a = armaById(tipo.slice(5)); if (!a) break; inv.objetos.push(objetoDeArma(a, { cant, nombre:nom || a.nombre, equipada:!inv.objetos.some(o => o.tipo === "arma" && o.equipada) })); }
-        else if (tipo === "pocion") inv.objetos.push({ id:nuevoId(), nombre:nom || POCION_CURA.nombre, tipo:"pocion", cura:POCION_CURA.cura, cant });
+        if (tipo.startsWith("cat:")){ const x = itemById(tipo.slice(4)); if (!x) break;
+          const libre = x.tipo === "arma" ? !inv.objetos.some(o => o.tipo === "arma" && o.equipada) : x.tipo === "armadura" ? !inv.objetos.some(o => o.tipo === "armadura" && o.equipada && (o.armadura?.cat === "escudo") === (x.cat === "escudo")) : false;
+          inv.objetos.push(objetoDeCatalogo(x, { cant, nombre:nom || x.nombre, ...(x.tipo === "arma" || x.tipo === "armadura" ? { equipada:libre } : {}) })); }
         else { if (!nom){ toast("Escribe qué es."); $("#ed-obj-nom")?.focus(); break; } inv.objetos.push({ id:nuevoId(), nombre:nom, tipo:tipo === "pocion-otra" ? "pocion" : "objeto", cant }); }
         p.inventario = inv; render(true); } break;
     case "ed-obj-quitar": { leerForm(); const inv = invDe(S.edit); inv.objetos = inv.objetos.filter(o => o.id !== t.dataset.o); S.edit.inventario = inv; render(true); } break;
