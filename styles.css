@@ -347,3 +347,20 @@ table.armas td:last-child{text-align:right;white-space:nowrap}
 .checks{display:flex;flex-wrap:wrap;gap:6px 14px}
 .hechizos{display:grid;gap:6px}
 .hechizos select{width:auto;max-width:140px}
+
+/* Estados alterados, catálogo y combate de enemigos */
+.chip.est{display:inline-flex;align-items:center;gap:4px;margin:1px 2px;font-size:.75rem}
+.chip .x{border:0;background:transparent;color:inherit;cursor:pointer;padding:0 2px;font-size:.8rem;line-height:1}
+.chip .x:hover{color:var(--bad)}
+.cb-part{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;padding:8px 0}
+.cb-est summary{cursor:pointer;padding:4px 0}
+.accion.enemigo{border-left-color:var(--bad);background:var(--surface)}
+.huir{align-items:center;flex-wrap:wrap;margin-top:6px}
+.cat-tabs{display:flex;flex-wrap:wrap;gap:6px}
+.cat-filtros{display:flex;flex-wrap:wrap;gap:10px;align-items:end}
+.cat-filtros .field{flex:1 1 200px;min-width:0}
+.efecto-campos{flex-wrap:wrap}
+.efecto-campos .field{min-width:0}
+.est-mini{font-size:.75rem;color:var(--muted)}
+.ed-obj .row{flex-wrap:wrap}
+@media (max-width:640px){ .accion .ataque-form{flex-direction:column;align-items:stretch} .accion .ataque-form .field{max-width:none !important} }

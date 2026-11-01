@@ -227,7 +227,7 @@ function combateBanner(c, voz){
   const dm = voz === "dm", act = actorActual(c);
   const mio = act?.tipo === "pj" && esMio(act.id);
   const chips = k.orden.map((e,i) => { const { act:a, max } = pgDe(c, e), info = e.tipo === "pj" || dm ? `${a}/${max}` : estadoEnemigo(e);
-    return `<span class="ord ${i === k.turno ? "now" : ""} ${a <= 0 ? "ko" : ""} ${e.tipo}"><b>${esc(e.nombre)}</b> <span class="mono">${iniTotal(e) ?? "–"}</span> <span class="small">${esc(String(info))}</span></span>`; }).join("");
+    return `<span class="ord ${i === k.turno ? "now" : ""} ${a <= 0 ? "ko" : ""} ${e.tipo}"><b>${esc(e.nombre)}</b> <span class="mono">${iniTotal(e) ?? "–"}</span> <span class="small">${esc(String(info))}</span>${estadosDe(e).length ? ` <span class="small est-mini">${esc(estadosDe(e).map(s => s.nombre).join(", "))}</span>` : ""}</span>`; }).join("");
   const faltan = k.orden.filter(e => e.tipo === "pj" && e.dado == null).map(e => e.nombre);
   const titulo = k.turno < 0 ? `Combate: tirando iniciativa${faltan.length ? ` (faltan ${esc(faltan.join(", "))})` : ""}` : mio ? `¡Te toca con ${esc(act.nombre)}!` : `Ronda ${k.ronda} · turno de ${esc(act?.nombre || "?")}${act?.tipo === "pj" ? ` (${esc(nombreUsuario(pjById(act.id)?.dueno))})` : ""}`;
   return `<div class="turno-banner ${mio ? "mio" : ""}" role="status"><b>${titulo}</b><div class="orden-strip">${chips}</div></div>`;
@@ -256,6 +256,9 @@ function accionesJugador(c, pjId){
     out.push(`<div class="accion mio"><div><b>¡${a.hechizo ? esc(a.con) + " alcanza" : esc(pjById(a.pj)?.nombre || "") + " impacta"} a ${esc(e?.nombre || "")}${a.r?.crit ? " con un crítico" : ""}${a.mult === 0.5 ? " (supera la salvación: mitad de daño)" : ""}!</b> Tira el daño: <span class="mono">${esc(a.dn)}</span>${a.r?.crit ? " (crítico: dados dobles)" : ""}.</div>
       <div class="row">${inputDado(`id="fa-dv" aria-label="Suma de los dados de daño"`, "suma de los dados")}<button class="btn sm primary" data-act="cb-dano-pj">Aplicar daño</button><button class="btn sm ghost" data-act="cb-atq-no">Cancelar</button></div></div>`);
   } else if (k.activo && k.turno >= 0){ const ya = ataqueEsteTurno(c, pjId);
+    const yo = entradaDe(c, pjId), incap = estadosDe(yo).find(s => s.incapacita);
+    if (yo && estadosDe(yo).length) out.push(`<div class="accion ${incap ? "hecho" : ""}"><div><b>${esc(pjById(pjId)?.nombre || "")} está:</b> ${chipsEstados(yo)}</div>${incap ? `<span class="small muted">Está ${esc(incap.nombre.toLowerCase())}: perderá su turno.</span>` : ""}</div>`);
+    if (actorActual(c)?.id === pjId && !ya && !incap) out.push(`<div class="accion">${huirHtml(c, pjId)}</div>`);
     out.push(ya ? `<div class="accion hecho"><div><b>Ya has atacado este turno.</b> ${rich(ya.split("\n").slice(-2).join(" ")).replace(/<\/?p>/g, "")}</div><span class="small muted">Espera a que el DM pase al siguiente turno.</span></div>` : formAtaque(c, pjId)); }
   return out.filter(Boolean).length ? `<div class="acciones">${out.join("")}</div>` : "";
 }
@@ -271,7 +274,7 @@ function formAtaque(c, pjId){
     <label class="field" style="max-width:100px"><span>Dados de daño</span><input type="text" id="fa-dano" class="mono" value="${esc(op.dado)}" ${op.libre ? "" : "readonly"}></label>
     ${c.dadosFisicos ? `<label class="field" style="max-width:110px"><span>Tu d20</span>${inputDado(`id="fa-d20"`)}</label>` : ""}
     <button class="btn sm primary" data-act="cb-atacar-pj" ${S.busy ? "disabled" : ""}>Atacar</button></div>
-    <span class="small" id="fa-hint">${ataqueHint(op)}</span>
+    <span class="small" id="fa-hint">${ataqueHint(op)}</span> <span id="fa-modo">${modoTxt(modoAtaque(c, pjId, enem[0].id), c.dadosFisicos)}</span>
     <span class="small muted">${sinArmas ? `No tiene armas equipadas: añádelas en su inventario (panel de la derecha) y aparecerán aquí con sus bonificaciones. ` : ""}Lo que escribas en el cuadro de abajo se envía como descripción del ataque.</span></div>`;
 }
 // Panel lateral del jugador: solo su personaje, sus PG, sus bonificadores y sus tiradas
@@ -337,13 +340,14 @@ function fisicaHtml(c, grupo){
 
 // Panel del DM: preparar el encuentro, calculadora, iniciativa, turnos, ataques de los enemigos y daño a mano
 function panelCombate(c, grupo){
-  const k = cb(c), enem = k.orden.filter(e => e.tipo === "enemigo"), calc = calcEncuentro(grupo, enem);
+  const k = cb(c), enem = k.orden.filter(e => e.tipo === "enemigo"), enCombate = k.activo ? grupo.filter(p => k.orden.some(e => e.id === p.id)) : participantesCombate(c, grupo), calc = calcEncuentro(enCombate, enem);
+  const fuera = k.activo ? grupo.filter(p => !k.orden.some(e => e.id === p.id)) : [];
   const filas = k.orden.map((e,i) => { const { act, max } = pgDe(c, e);
     return `<div class="cb-row ${k.activo && k.turno === i ? "now" : ""} ${act <= 0 ? "ko" : ""}">
-      <span class="small"><b>${esc(e.nombre)}</b>${e.tipo === "enemigo" ? ` <span class="muted">CA ${e.ca} · ${sgn(+e.at) || "+0"} · ${esc(e.dano)}</span>` : ""}</span>
+      <span class="small"><b>${esc(e.nombre)}</b>${e.tipo === "enemigo" ? ` <span class="muted">CA ${e.ca} · ${esc(accionesDe(e).map(x => x.n).join(", "))}</span>` : ""} ${chipsEstados(e, k.activo)}</span>
       ${k.activo ? `<span class="ini-in"><input type="number" class="mono" data-cb-dado="${esc(e.id)}" value="${e.dado ?? ""}" min="1" max="20" placeholder="d20" aria-label="d20 de iniciativa de ${esc(e.nombre)}"><span class="mono small">${sgn(+e.mod || 0) || "+0"} = ${iniTotal(e) ?? "–"}</span></span>` : ""}
       <span class="mono small">${act}/${max} PG</span>
-      ${e.tipo === "enemigo" ? `<button class="btn sm ghost" data-act="cb-quitar" data-id="${esc(e.id)}" aria-label="Quitar ${esc(e.nombre)}">✕</button>` : "<span></span>"}
+      <button class="btn sm ghost" data-act="cb-quitar" data-id="${esc(e.id)}" aria-label="${e.tipo === "pj" ? "Sacar del combate a" : "Quitar"} ${esc(e.nombre)}" title="${e.tipo === "pj" ? "Sacar del combate" : "Quitar"}">✕</button>
     </div>`; }).join("");
   const vivosE = enem.filter(e => +e.pg > 0), act = actorActual(c);
   const objetivos = [...grupo.map(p => ({ id:p.id, n:p.nombre })), ...enem.map(e => ({ id:e.id, n:e.nombre }))];
@@ -366,15 +370,14 @@ function panelCombate(c, grupo){
       <input type="text" id="cbp-dano" placeholder="1d6+1" value="1d6+1" aria-label="Daño" class="mono" style="width:80px">
       <button class="btn sm" data-act="cb-anadir-propio">Añadir</button>
     </div></details>
-    <div class="row">${!k.activo ? `<button class="btn sm primary" data-act="cb-empezar" ${enem.length && grupo.length ? "" : "disabled"}>Empezar combate</button>`
+    ${participantesHtml(c, grupo)}
+    <div class="row">${!k.activo ? `<button class="btn sm primary" data-act="cb-empezar" ${enem.length && enCombate.length ? "" : "disabled"}>Empezar combate</button>`
       : `${k.turno < 0 ? `<button class="btn sm primary" data-act="cb-ordenar">Ordenar y empezar</button>` : `<button class="btn sm" data-act="cb-ordenar">Reordenar</button><button class="btn sm primary" data-act="cb-siguiente">Siguiente turno</button>`}
          <span data-confirm="cb-fin"><button class="btn sm ghost" data-act="cb-terminar">Terminar combate</button></span>`}</div>
     ${k.activo && k.turno < 0 ? `<p class="small muted">${c.dadosFisicos ? "Escribe el d20 físico de cada personaje; la app suma su Destreza." : "Revisa las tiradas si quieres."} Luego pulsa «Ordenar y empezar».</p>` : ""}
-    ${k.activo && vivosE.length && grupo.length ? `<div class="row cb-add"><span class="small">Ataque enemigo:</span>
-      <select id="cb-atk" aria-label="Atacante">${vivosE.map(e => `<option value="${esc(e.id)}" ${act?.id === e.id ? "selected" : ""}>${esc(e.nombre)}</option>`).join("")}</select>
-      <select id="cb-vic" aria-label="Objetivo">${grupo.map(p => `<option value="${p.id}">${esc(p.nombre)} (CA ${derive(p).ca})</option>`).join("")}</select>
-      ${c.dadosFisicos ? `${inputDado(`id="cb-atk-d20" aria-label="d20 del enemigo"`)}${inputDado(`id="cb-atk-dano" aria-label="Daño del enemigo"`, "daño")}` : ""}
-      <button class="btn sm" data-act="cb-atacar-en">Atacar</button></div>` : ""}
+    ${k.activo && k.turno >= 0 && actorActual(c)?.tipo !== "enemigo" && vivosE.length ? `<p class="small muted">Cuando le toque a un enemigo, elegirás su acción en la tarjeta de encima del chat.</p>` : ""}
+    ${estadosDMHtml(c)}
+    ${fuera.length ? `<div class="row cb-add"><span class="small">Meter en el combate:</span><select id="cb-meter-pj">${fuera.map(p => `<option value="${p.id}">${esc(p.nombre)}</option>`).join("")}</select><button class="btn sm" data-act="cb-meter">Meter</button></div>` : ""}
     ${objetivos.length ? `<div class="row cb-add"><span class="small">A mano:</span>
       <select id="cb-obj" aria-label="Objetivo">${objetivos.map(o => `<option value="${esc(o.id)}">${esc(o.n)}</option>`).join("")}</select>
       <input type="number" id="cb-cant-pg" min="1" max="999" value="1" aria-label="Cantidad" style="width:64px">
@@ -387,15 +390,17 @@ function panelCombate(c, grupo){
 function nuevoEnemigo(k, m, n){
   const mismos = k.orden.filter(e => e.tipo === "enemigo" && e.base === m.n).length;
   return { id:"e" + Date.now().toString(36) + Math.floor(Math.random() * 1e6).toString(36), tipo:"enemigo", base:m.n,
-    nombre:n > 1 || mismos ? `${m.n} ${mismos + 1}` : m.n, vd:m.vd, ca:+m.ca, pg:+m.pg, pgMax:+m.pg, at:+m.at, dano:m.dano, mod:+m.mod || 0, dado:k.activo ? rnd(20) : null };
+    nombre:n > 1 || mismos ? `${m.n} ${mismos + 1}` : m.n, vd:m.vd, ca:+m.ca, pg:+m.pg, pgMax:+m.pg, at:+m.at, dano:m.dano, mod:+m.mod || 0, dado:k.activo ? rnd(20) : null,
+    acc:clone(m.acc || accionesDe({ base:m.n, at:m.at, dano:m.dano })), estados:[] };
 }
 function anadirEnemigos(c, m, cant){
   editarCombate(c, k => { for (let i = 0; i < cant; i++) k.orden.push(nuevoEnemigo(k, m, cant)); });
 }
 function empezarCombate(c){
-  const grupo = grupoDe(c.id), fis = !!c.dadosFisicos;
+  const grupo = participantesCombate(c, grupoDe(c.id)), fis = !!c.dadosFisicos;
+  if (!grupo.length){ toast("Elige al menos un personaje para el combate."); return; }
   editarCombate(c, k => {
-    const pjs = grupo.map(p => ({ id:p.id, tipo:"pj", nombre:p.nombre, mod:derive(p).ini, dado:fis ? null : rnd(20) }));
+    const pjs = grupo.map(p => ({ id:p.id, tipo:"pj", nombre:p.nombre, mod:derive(p).ini, pgMax:derive(p).pg, dado:fis ? null : rnd(20), estados:[] }));
     k.orden.filter(e => e.tipo === "enemigo").forEach(e => e.dado = rnd(20));
     k.orden = [...pjs, ...k.orden.filter(e => e.tipo === "enemigo")];
     k.activo = true; k.ronda = 1; k.turno = -1;
@@ -412,7 +417,7 @@ function ordenarCombate(c){
   }, k => { return empieza ? [{ r:"sys", t:`Orden de iniciativa: ${k.orden.map(x => `${x.nombre} ${iniTotal(x) ?? "–"}`).join(", ")}.` }, ...anuncioTurno(k)] : []; });
 }
 function terminarCombate(c){
-  const grupo = grupoDe(c.id), k0 = cb(c), caidos = k0.orden.filter(e => e.tipo === "enemigo" && +e.pg <= 0), calc = calcEncuentro(grupo, caidos);
+  const k0 = cb(c), enC = grupoDe(c.id).filter(p => k0.orden.some(e => e.id === p.id)), grupo = enC.length ? enC : grupoDe(c.id), caidos = k0.orden.filter(e => e.tipo === "enemigo" && +e.pg <= 0), calc = calcEncuentro(grupo, caidos);
   editarCombate(c, k => { k.activo = false; k.orden = []; k.turno = -1; k.ronda = 1; },
     k0.activo ? [{ r:"sys", t:`**Fin del combate.**${caidos.length ? ` Enemigos derrotados: ${caidos.map(e => e.nombre).join(", ")}. Experiencia: ${calc.base} PX en total, ${calc.porPJ} por personaje.` : ""}` }] : [])
     .then(async () => { if (!k0.activo || calc.porPJ < 1 || !grupo.length) return; S.busy = true;
@@ -458,22 +463,23 @@ async function ataqueEnemigo(c){
 async function ataqueJugador(c){
   const pjId = vozActual(c), p = pjById(pjId), k = cb(c), e = k.orden.find(x => x.id === $("#fa-obj")?.value); if (!p || !e) return;
   const op = ataquesDe(p).find(x => x.v === $("#fa-con")?.value); if (!op) return;
-  const dado = (op.libre ? $("#fa-dano").value.trim() : op.dado) || op.dado;
-  try { partesNot(dado); } catch (er) { toast(esc(er.message)); return; }
+  const dado = (op.libre ? $("#fa-dano").value.trim() : op.dado) || op.dado || "";
+  if (dado) try { partesNot(dado); } catch (er) { toast(esc(er.message)); return; }
+  const mAuto = modoAtaque(c, p.id, e.id), modo = mAuto.modo !== "normal" ? mAuto.modo : S.trayMode;
   // Hechizos que no tiran ataque: impactan siempre, o el objetivo tira su salvación contra tu CD (la tira la app)
   if (op.hechizo && op.modo !== "ataque"){
     let sv = null, mult = 1;
     if (op.modo === "salvacion"){ const m = op.sv === "DES" ? (+e.mod || 0) : 0, dd = rnd(20), total = dd + m, pasa = dd !== 1 && (dd === 20 || total >= op.cd);
       sv = { dd, m, total, pasa }; mult = pasa ? (op.mitad ? 0.5 : 0) : 1; }
-    const a = { c:c.id, pj:p.id, e:e.id, con:op.corto, r:null, hechizo:op, sv, mult, impacta:mult > 0, dn:dado + sgn(op.mDano) };
-    if (mult > 0 && c.dadosFisicos){ S.atq = a; render(); $("#fa-dv")?.focus(); return; }
-    publicarAtaque(c, a, mult > 0 ? rollNotation(a.dn) : null); return;
+    const a = { c:c.id, pj:p.id, e:e.id, con:op.corto, r:null, hechizo:op, efecto:op.efecto, sv, mult, impacta:mult > 0, dn:dado ? dado + sgn(op.mDano) : "" };
+    if (mult > 0 && a.dn && c.dadosFisicos){ S.atq = a; render(); $("#fa-dv")?.focus(); return; }
+    publicarAtaque(c, a, mult > 0 && a.dn ? rollNotation(a.dn) : null); return;
   }
-  let r; try { r = tirarCon(c, `1d20${sgn(op.bono)}`, `Ataque de ${p.nombre} con ${op.corto}`, S.trayMode, $("#fa-d20")?.value); } catch (er) { toast(esc(er.message)); return; }
+  let r; try { r = tirarCon(c, `1d20${sgn(op.bono)}`, `Ataque de ${p.nombre} con ${op.corto}`, modo, $("#fa-d20")?.value); } catch (er) { toast(esc(er.message)); return; }
   const impacta = !r.pifia && (r.crit || r.total >= +e.ca);
-  const a = { c:c.id, pj:p.id, e:e.id, con:op.corto, r, impacta, dn:(r.crit ? doblarDados(dado) : dado) + sgn(op.mDano) };
-  if (impacta && c.dadosFisicos){ S.atq = a; render(); $("#fa-dv")?.focus(); return; }
-  publicarAtaque(c, a, impacta ? rollNotation(a.dn) : null);
+  const a = { c:c.id, pj:p.id, e:e.id, con:op.corto, r, impacta, efecto:op.efecto, modo:mAuto, consume:op.consume, dn:dado ? (r.crit ? doblarDados(dado) : dado) + sgn(op.mDano) : "" };
+  if (impacta && a.dn && c.dadosFisicos){ S.atq = a; render(); $("#fa-dv")?.focus(); return; }
+  publicarAtaque(c, a, impacta && a.dn ? rollNotation(a.dn) : null);
 }
 // El último ataque de este personaje desde que empezó el turno actual (para no atacar dos veces y ver el resultado)
 function ataqueEsteTurno(c, pjId){
@@ -486,16 +492,25 @@ async function publicarAtaque(c, a, dmg){
   const p = pjById(a.pj), e = cb(c).orden.find(x => x.id === a.e); if (!p || !e) return;
   S.busy = true;
   try {
-    let t = a.r ? `Ataque de ${p.nombre} a ${e.nombre} (${ATQ_CORTO[a.con] || a.con}): ${lineaTirada(a.r)} contra CA ${e.ca}: ${a.impacta ? (a.r.crit ? "**¡crítico!**" : "**impacta**.") : "falla."}`
+    let t = a.r ? `Ataque de ${p.nombre} a ${e.nombre} (${ATQ_CORTO[a.con] || a.con}): ${lineaTirada(a.r)}${a.modo && a.modo.modo !== "normal" ? ` (${a.modo.modo}: ${a.modo.por.join(", ")})` : ""} contra CA ${e.ca}: ${a.impacta ? (a.r.crit ? "**¡crítico!**" : "**impacta**.") : "falla."}`
       : `Ataque de ${p.nombre} a ${e.nombre} (${a.con}): ` + (a.sv ? `salvación de ${AB_N[a.hechizo.sv]} de ${e.nombre}: d20 [${a.sv.dd}] ${sgn(a.sv.m) || "+0"} = ${a.sv.total} contra CD ${a.hechizo.cd}: ${a.sv.pasa ? (a.mult ? "la supera, **recibe la mitad**." : "la supera, **no le afecta**.") : "**falla la salvación**."}` : "**impacta sin fallar**.");
     if (dmg){ const total = Math.max(0, Math.floor(dmg.total * (a.mult ?? 1))), nuevo = await aplicarDano(c, e.id, total); t += `\nDaño: ${lineaTirada(dmg)}${a.mult === 0.5 ? ` → mitad: **${total}**` : ""}${a.hechizo?.tipoDano ? " de " + a.hechizo.tipoDano : ""}. ${trasDano(c, e.id, nuevo)}`; dmg = { ...dmg, total }; }
+    if (a.efecto?.estado && (a.r ? a.impacta : !a.sv?.pasa) && +(entradaDe(c, e.id)?.pg ?? 0) > 0){
+      let aplica = true;
+      if (a.efecto.sv){ const dd = rnd(20), m = a.efecto.sv === "DES" ? (+e.mod || 0) : 0, tot = dd + m; aplica = dd !== 20 && tot < (+a.efecto.cd || 10);
+        t += ` Salvación de ${AB_N[a.efecto.sv]} de ${e.nombre} contra ${a.efecto.estado.toLowerCase()}: d20 [${dd}] ${sgn(m) || "+0"} = ${tot} contra CD ${a.efecto.cd}: ${aplica ? "falla." : "la supera."}`; }
+      if (aplica) t += await ponerEstado(c, e.id, a.efecto);
+    }
     S.atq = null;
     await publicar(c, p.id, t);
     if (a.r) avisoAtaque(p.nombre, a.r, +e.ca, dmg, actorActual(c)?.id === p.id);
     else toast((a.impacta ? `<b>${esc(a.con)} alcanza a ${esc(e.nombre)}.</b>${dmg ? ` ${dmg.total} de daño.` : ""}` : `<b>${esc(e.nombre)} supera la salvación</b> contra ${esc(a.con)}.`) + (actorActual(c)?.id === p.id ? " Pasa el turno." : ""), 5000);
     await pasarTurnoTras(c, p.id);
   } catch (er) { toast(esc(errorTexto(er))); }
-  S.busy = false; render();
+  S.busy = false;
+  // Lo que se lanza (aceite de fuego, frasco de ácido…) se gasta
+  if (a.consume && p.dueno === S.me) await cambiarInv(p, inv => { const o = inv.objetos.find(x => x.id === a.consume); if (!o) return false; o.cant = (+o.cant || 1) - 1; });
+  render();
 }
 async function tiradaFisicaDM(c){
   const p = pjById($("#pf-pj")?.value), tipo = $("#pf-tipo").value, v = +$("#pf-dado").value, cd = +$("#pf-cd").value || null; if (!p) return;
@@ -545,7 +560,7 @@ document.addEventListener("click", (ev) => {
     case "cb-quitar": editarCombate(c, k => { const i = k.orden.findIndex(e => e.id === t.dataset.id); if (i < 0) return; k.orden.splice(i, 1); if (i < k.turno) k.turno--; if (k.turno >= k.orden.length) k.turno = 0; }); break;
     case "cb-empezar": empezarCombate(c); break;
     case "cb-ordenar": ordenarCombate(c); break;
-    case "cb-siguiente": editarCombate(c, k => siguienteTurno(c, k), k => anuncioTurno(k)); break;
+    case "cb-siguiente": { const a = actorActual(c); if (!a) break; S.busy = true; pasarTurnoTras(c, a.id).finally(() => { S.busy = false; render(); }); } break;
     case "cb-terminar": confirmar(t, () => terminarCombate(c), "Sí, terminar"); break;
     case "cb-atacar-en": ataqueEnemigo(c); break;
     case "cb-atacar-pj": ataqueJugador(c); break;

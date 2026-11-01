@@ -59,10 +59,10 @@ const sb = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseKey);
 /* ==================== estado ==================== */
 const S = {
   view:"inicio", loaded:false, user:null, me:null, perfil:null, recovery:false, authMode:"entrar",
-  perfiles:{}, facciones:[], armas:[], hechizos:[], personajes:[], partidas:[], participantes:[], asesor:{},
+  perfiles:{}, facciones:[], armas:[], hechizos:[], objetos:[], personajes:[], partidas:[], participantes:[], asesor:{},
   edit:null, verPj:null, editFac:null, verFac:null, campSel:null, playId:null, dmId:null,
   busy:false, err:"", trayMode:"normal", hist:[], camForm:null, draft:"",
-  pjFiltro:"mios", facFiltro:"todas", spoilers:false, pending:false, habla:{}, turnoVisto:{}, editArma:null, fin:null, editHechizo:null, hzFiltro:""
+  pjFiltro:"mios", facFiltro:"todas", spoilers:false, pending:false, habla:{}, turnoVisto:{}, editArma:null, fin:null, editHechizo:null, hzFiltro:"", editObjeto:null, catTipo:"", catBusca:""
 };
 
 /* ==================== búsquedas ==================== */
@@ -107,7 +107,8 @@ function derive(pj){
   let caAuto = 10 + des, caTxt = "10 + DES (sin armadura)";
   if (c.ca === "barb"){ caAuto = 10 + des + con; caTxt = "10 + DES + CON (defensa sin armadura)"; }
   if (c.ca === "monk"){ caAuto = 10 + des + modOf(sc.SAB); caTxt = "10 + DES + SAB (defensa sin armadura)"; }
-  return { sc, pg, ca: pj.ca ? +pj.ca : caAuto, caTxt: pj.ca ? "fijada a mano según tu armadura" : caTxt, prof: prof(lvl), ini: des, vel: r.v || 30, sv: c.sv || [], dado: c.d, raza: r };
+  const arm = typeof caArmadura === "function" ? caArmadura(pj, des, caAuto) : null;
+  return { sc, pg, ca: arm ? arm.ca : pj.ca ? +pj.ca : caAuto, caTxt: arm ? arm.txt + " (inventario)" : pj.ca ? "fijada a mano según tu armadura" : caTxt, prof: prof(lvl), ini: des, vel: r.v || 30, sv: c.sv || [], dado: c.d, raza: r };
 }
 // Experiencia (SRD 5.1): PX necesarios para cada nivel
 const XP_NIVEL = [0,300,900,2700,6500,14000,23000,34000,48000,64000,85000,100000,120000,140000,165000,195000,225000,265000,305000,355000];

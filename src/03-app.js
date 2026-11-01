@@ -6,6 +6,7 @@ const CARGAS = {
   dm_personajes: async () => { S.personajes = (await q(sb.from("dm_personajes").select("*").order("actualizado", {ascending:false}))).map(pjFromRow); },
   dm_partidas: async () => { S.partidas = (await q(sb.from("dm_partidas").select("*").order("actualizado", {ascending:false}))).map(partFromRow); },
   dm_participantes: async () => { S.participantes = await q(sb.from("dm_participantes").select("*")); },
+  dm_objetos: async () => { try { S.objetos = (await q(sb.from("dm_objetos").select("*").order("nombre"))).map(objetoFromRow); } catch { S.objetos = []; } },
   dm_hechizos: async () => { try { S.hechizos = (await q(sb.from("dm_hechizos").select("*").order("nombre"))).map(hechizoFromRow); } catch { S.hechizos = []; } },
   dm_armas: async () => { try { S.armas = (await q(sb.from("dm_armas").select("*").order("nombre"))).map(armaFromRow); } catch { S.armas = []; } }
 };
@@ -137,9 +138,10 @@ function pintarMenu(){
 }
 
 /* ==================== router y render ==================== */
-const VIEWS = ["inicio","personajes","facciones","armeria","hechizos","campanas","jugar","asistente","dados"];
+const VIEWS = ["inicio","personajes","facciones","catalogo","campanas","jugar","asistente","dados"];
 function route(){
-  const h = location.hash.replace("#","");
+  let h = location.hash.replace("#","");
+  if (h === "armeria" || h === "hechizos"){ S.catTipo = h === "armeria" ? "arma" : "hechizo"; h = "catalogo"; }
   S.view = VIEWS.includes(h) ? h : (h.startsWith("w-") ? "dados" : "inicio");
   render();
   if (h.startsWith("w-")) setTimeout(() => document.getElementById(h)?.scrollIntoView(), 30);
@@ -153,8 +155,9 @@ function render(sinLeer){
   S.pending = false;
   if (!sinLeer && S.edit && S.view === "personajes") leerForm();
   if (!sinLeer && S.editFac && S.view === "facciones") leerFac();
-  if (!sinLeer && S.editArma && S.view === "armeria") leerArma();
-  if (!sinLeer && S.editHechizo && S.view === "hechizos") leerHechizo();
+  if (!sinLeer && S.editArma && S.view === "catalogo") leerArma();
+  if (!sinLeer && S.editHechizo && S.view === "catalogo") leerHechizo();
+  if (!sinLeer && S.editObjeto && S.view === "catalogo") leerObjeto();
   $$(".tab").forEach(a => a.setAttribute("aria-current", a.getAttribute("href") === "#" + S.view ? "page" : "false"));
   pintarMenu();
   const app = $("#app");
@@ -163,7 +166,7 @@ function render(sinLeer){
   if (S.view === "dados") html = vDados();
   else if (!S.me || S.recovery) html = vAuth();
   else if (!S.perfil) html = vElegirUsuario();
-  else html = ({ inicio:vInicio, personajes:vPersonajes, facciones:vFacciones, armeria:vArmeria, hechizos:vGrimorio, campanas:vCampanas, jugar:vJugar, asistente:vAsistente })[S.view]();
+  else html = ({ inicio:vInicio, personajes:vPersonajes, facciones:vFacciones, catalogo:vCatalogo, campanas:vCampanas, jugar:vJugar, asistente:vAsistente })[S.view]();
   app.innerHTML = html;
   after[S.view]?.();
 }
@@ -676,7 +679,7 @@ function vJugar(){
           ${combateBanner(c, voz)}
           ${voz === "dm" ? "" : misPG(c)}
           ${voces.length > 1 ? `<label class="field" style="max-width:320px"><span>Hablas como</span><select id="play-como">${voces.map(x=>`<option value="${x.v}" ${x.v===voz?"selected":""}>${esc(x.t)}</option>`).join("")}</select></label>` : ""}
-          ${voz === "dm" ? dmHerramientas(c, grupo, log) : voz && voz !== "grupo" ? accionesJugador(c, voz) : ""}
+          ${voz === "dm" ? dmHerramientas(c, grupo, log) : voz && voz !== "grupo" ? (soyDM ? tarjetaEnemigo(c, grupo) : "") + accionesJugador(c, voz) : ""}
           <textarea id="play-in" placeholder="${esc(ph)}" ${voz === "dm" ? `style="min-height:120px"` : ""} ${S.busy?"disabled":""}>${esc(S.draft||"")}</textarea>
           <div class="row" style="justify-content:space-between">
             <div class="row">${voz === "dm" ? "" : humano ? `
@@ -721,7 +724,7 @@ function vJugar(){
 }
 // Utilidades del DM humano: pedir una tirada a un personaje y tirar por los enemigos
 function dmHerramientas(c, grupo, log){
-  return `<div class="dm-tools">
+  return `${tarjetaEnemigo(c, grupo)}<div class="dm-tools">
     ${!log.length && c.gancho ? `<div class="row"><button class="btn sm gold" data-act="dm-gancho">Empezar con el gancho de la partida</button></div>` : ""}
     <div class="row">
       <label class="field"><span>Pedir tirada a</span><select id="pt-pj">${grupo.length > 1 ? `<option value="*">Todo el grupo</option>` : ""}${grupo.map(p=>`<option value="${p.id}">${esc(p.nombre)}</option>`).join("")}</select></label>
