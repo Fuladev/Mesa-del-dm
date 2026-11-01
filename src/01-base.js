@@ -59,10 +59,10 @@ const sb = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseKey);
 /* ==================== estado ==================== */
 const S = {
   view:"inicio", loaded:false, user:null, me:null, perfil:null, recovery:false, authMode:"entrar",
-  perfiles:{}, facciones:[], personajes:[], partidas:[], participantes:[], asesor:{},
+  perfiles:{}, facciones:[], armas:[], personajes:[], partidas:[], participantes:[], asesor:{},
   edit:null, verPj:null, editFac:null, verFac:null, campSel:null, playId:null, dmId:null,
   busy:false, err:"", trayMode:"normal", hist:[], camForm:null, draft:"",
-  pjFiltro:"mios", facFiltro:"todas", spoilers:false, pending:false, habla:{}, turnoVisto:{}
+  pjFiltro:"mios", facFiltro:"todas", spoilers:false, pending:false, habla:{}, turnoVisto:{}, editArma:null, fin:null
 };
 
 /* ==================== búsquedas ==================== */

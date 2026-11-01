@@ -147,8 +147,9 @@ document.addEventListener("click", async (ev) => {
         catch (e) { toast(esc(e?.code ? iaMsg(e) : errorTexto(e))); }
         S.busy = false; render(); } break;
     case "play-reset": confirmar(t, async () => { const c = partida(id);
-        try { await guardar(sb.from("dm_partidas").update({ log:[], resumen:"", resumen_idx:0, usados:{}, pg_act:{}, combate:{}, escribiendo:null, escribiendo_ts:null }).eq("id", id), "Partida reiniciada.");
-          Object.assign(c, { log:[], resumen:"", resumenIdx:0, usados:{}, pgAct:{}, combate:{}, escribiendo:null }); } catch {}
+        try { const f = await q(sb.from("dm_partidas").select("datos").eq("id", id).single()), datos = { ...(f.datos || {}) }; delete datos.terminada;
+          await guardar(sb.from("dm_partidas").update({ log:[], resumen:"", resumen_idx:0, usados:{}, pg_act:{}, combate:{}, escribiendo:null, escribiendo_ts:null, datos }).eq("id", id), "Partida reiniciada.");
+          Object.assign(c, { log:[], resumen:"", resumenIdx:0, usados:{}, pgAct:{}, combate:{}, escribiendo:null, terminada:null }); } catch {}
         render(); }, "Sí, reiniciar"); break;
     case "hp": cambiarPG(id, +t.dataset.d); break;
     case "die": tirarBandeja("1d" + t.dataset.n); break;

@@ -5,7 +5,8 @@ const CARGAS = {
   dm_facciones: async () => { S.facciones = (await q(sb.from("dm_facciones").select("*").order("nombre"))).map(facFromRow); },
   dm_personajes: async () => { S.personajes = (await q(sb.from("dm_personajes").select("*").order("actualizado", {ascending:false}))).map(pjFromRow); },
   dm_partidas: async () => { S.partidas = (await q(sb.from("dm_partidas").select("*").order("actualizado", {ascending:false}))).map(partFromRow); },
-  dm_participantes: async () => { S.participantes = await q(sb.from("dm_participantes").select("*")); }
+  dm_participantes: async () => { S.participantes = await q(sb.from("dm_participantes").select("*")); },
+  dm_armas: async () => { try { S.armas = (await q(sb.from("dm_armas").select("*").order("nombre"))).map(armaFromRow); } catch { S.armas = []; } }
 };
 async function cargarTodo(){ await Promise.all(Object.values(CARGAS).map(f => f())); }
 let canal = null; const recargas = {};
@@ -135,7 +136,7 @@ function pintarMenu(){
 }
 
 /* ==================== router y render ==================== */
-const VIEWS = ["inicio","personajes","facciones","campanas","jugar","asistente","dados"];
+const VIEWS = ["inicio","personajes","facciones","armeria","campanas","jugar","asistente","dados"];
 function route(){
   const h = location.hash.replace("#","");
   S.view = VIEWS.includes(h) ? h : (h.startsWith("w-") ? "dados" : "inicio");
@@ -151,6 +152,7 @@ function render(sinLeer){
   S.pending = false;
   if (!sinLeer && S.edit && S.view === "personajes") leerForm();
   if (!sinLeer && S.editFac && S.view === "facciones") leerFac();
+  if (!sinLeer && S.editArma && S.view === "armeria") leerArma();
   $$(".tab").forEach(a => a.setAttribute("aria-current", a.getAttribute("href") === "#" + S.view ? "page" : "false"));
   pintarMenu();
   const app = $("#app");
@@ -159,7 +161,7 @@ function render(sinLeer){
   if (S.view === "dados") html = vDados();
   else if (!S.me || S.recovery) html = vAuth();
   else if (!S.perfil) html = vElegirUsuario();
-  else html = ({ inicio:vInicio, personajes:vPersonajes, facciones:vFacciones, campanas:vCampanas, jugar:vJugar, asistente:vAsistente })[S.view]();
+  else html = ({ inicio:vInicio, personajes:vPersonajes, facciones:vFacciones, armeria:vArmeria, campanas:vCampanas, jugar:vJugar, asistente:vAsistente })[S.view]();
   app.innerHTML = html;
   after[S.view]?.();
 }
@@ -224,6 +226,7 @@ function vFicha(p){
     <div class="panel-h"><div style="display:grid;gap:6px"><span class="label">${esc(d.raza.nombre)} · ${esc(p.clase)} · nivel ${p.nivel}</span><h1>${esc(p.nombre)}</h1>${ownerChip(p.dueno)}</div><button class="btn ghost" data-act="pj-volver">Volver</button></div>
     <div class="panel"><div class="stats">${AB.map(k=>`<div class="stat"><span class="k">${k}</span><span class="m">${fm(modOf(d.sc[k]))}</span><span class="s">${d.sc[k]}</span></div>`).join("")}</div>
     <div class="chips"><span class="chip acc">PG ${d.pg}</span><span class="chip acc">CA ${d.ca}</span><span class="chip">Iniciativa ${fm(d.ini)}</span><span class="chip">Competencia ${fm(d.prof)}</span><span class="chip">Velocidad ${d.vel} pies</span></div>${xpBarHtml(p)}${avisosHtml(p)}</div>
+    <div class="panel"><div class="panel-h"><h2>Inventario</h2></div>${invHtml(p, null)}</div>
     <div class="panel"><dl class="kv">${kv.map(([k,v])=>`<dt>${k}</dt><dd>${esc(v)}</dd>`).join("")}</dl></div>
   </section>`;
 }
@@ -333,6 +336,7 @@ async function guardarPJ(){
   if (!p.nombre.trim()){ toast("Ponle un nombre a tu personaje."); $("#f-nombre")?.focus(); return; }
   if (p.raza_id){ const r = razaInfo(p); p.razaSnap = { nombre:r.nombre, b:r.b, v:r.v, t:(r.t||"").slice(0,300) }; } else delete p.razaSnap;
   const actual = p.id && pjById(p.id); if (actual && (+actual.xp || 0) > (+p.xp || 0)){ p.xp = actual.xp; p.nivel = Math.max(+p.nivel || 1, +actual.nivel || 1); }
+  if (actual) p.inventario = actual.inventario; // el inventario se cambia desde su propio panel
   const row = pjToRow(p);
   S.busy = true; render();
   try {
@@ -655,7 +659,7 @@ function vJugar(){
           <div id="live">${otro?`<div class="msg dm"><span class="who">Dungeon Master</span>${thinking(esc(nombreUsuario(c.escribiendo))+" ha hablado; el DM está preparando la respuesta…")}</div>`:""}</div>
         </div>
         <div class="composer">
-          ${!puedo ? `<p class="small">Estás mirando. Para participar, <a href="#campanas" data-act="camp-ver" data-id="${c.id}">únete con uno de tus personajes</a>.</p>` : `
+          ${c.terminada ? `<div class="fin-banner" role="status"><b>La partida ha terminado.</b> <span class="small">Las recompensas ya están en la ficha y el inventario de cada personaje.</span>${c.creador === S.me ? ` <button class="btn sm" data-act="play-reabrir">Reabrir partida</button>` : ""}</div>` : !puedo ? `<p class="small">Estás mirando. Para participar, <a href="#campanas" data-act="camp-ver" data-id="${c.id}">únete con uno de tus personajes</a>.</p>` : `
           ${!humano && !log.length ? `<button class="btn primary" data-act="play-start" ${bloqueado?"disabled":""}>Empezar la aventura</button>` : ""}
           ${combateBanner(c, voz)}
           ${voz === "dm" ? "" : misPG(c)}
@@ -675,6 +679,7 @@ function vJugar(){
         </div>
       </div>
       <aside class="side">
+        ${S.fin === c.id && c.creador === S.me && !c.terminada ? panelFin(c, grupo) : ""}
         ${voz === "dm" ? panelGrupoDM(c, grupo) : `
         ${voz && voz !== "grupo" ? panelJugador(c, pjById(voz)) : ""}
         <div class="panel">
@@ -694,6 +699,7 @@ function vJugar(){
           ${humano ? "" : `
           <label class="switch"><input type="checkbox" id="opt-aprendiz" ${c.aprendiz!==false?"checked":""}> Modo aprendiz: el DM explica las reglas</label>`}
           <div class="row">${humano ? "" : `<button class="btn sm" data-act="play-resumen" ${!bloqueado&&log.length>4?"":"disabled"}>Resumir historia hasta aquí</button>`}
+          ${c.creador===S.me && !c.terminada ? `<button class="btn sm primary" data-act="play-fin" ${S.fin === c.id ? "disabled" : ""}>Terminar partida</button>` : ""}
           ${c.creador===S.me?`<span data-confirm="reset-${c.id}"><button class="btn sm ghost" data-act="play-reset" data-id="${c.id}" ${log.length?"":"disabled"}>Reiniciar partida</button></span>`:""}</div>
           ${c.resumen?`<details><summary class="small">${humano ? "Resumen de lo jugado" : "Lo que recuerda el DM"}</summary><p class="small muted" style="margin-top:6px;white-space:pre-wrap">${esc(c.resumen)}</p></details>`:""}
         </div>` : ""}

@@ -263,16 +263,16 @@ function accionesJugador(c, pjId){
 function formAtaque(c, pjId){
   const act = actorActual(c), p = pjById(pjId); if (!p || !esMio(pjId)) return "";
   const enem = cb(c).orden.filter(e => e.tipo === "enemigo" && +e.pg > 0); if (!enem.length) return "";
-  const d = derive(p), mag = ["Mago","Hechicero","Brujo"].includes(p.clase), con = mag ? "MAG" : modOf(d.sc.DES) > modOf(d.sc.FUE) ? "DES" : "FUE";
-  const dano = mag ? "1d10" : (String(p.equipo || "").match(/\((\d+d\d+)\)/)?.[1] || "1d8"), turno = act?.id === pjId;
+  const ops = ataquesDe(p), op = ops[0], turno = act?.id === pjId, sinArmas = !ops.some(x => x.v.startsWith("w:"));
   return `<div class="accion ${turno ? "mio" : ""}"><div><b>${turno ? `Tu turno: ataca con ${esc(p.nombre)}` : `Atacar con ${esc(p.nombre)}`}</b>${turno ? "" : ` <span class="small muted">(ahora le toca a ${esc(act?.nombre || "otro")}; ataca solo si el DM te lo dice)</span>`}</div>
     <div class="row ataque-form">
     <label class="field"><span>Objetivo</span><select id="fa-obj">${enem.map(e => `<option value="${esc(e.id)}">${esc(e.nombre)} (CA ${e.ca})</option>`).join("")}</select></label>
-    <label class="field"><span>Con</span><select id="fa-con">${Object.keys(CON_ATAQUE).map(v => `<option value="${v}" ${v === con ? "selected" : ""}>${CON_ATAQUE[v]} ${sgn(modTirada(p, "at:" + v).mod) || "+0"}</option>`).join("")}</select></label>
-    <label class="field" style="max-width:100px"><span>Daño</span><input type="text" id="fa-dano" class="mono" value="${dano}"></label>
+    <label class="field"><span>Con</span><select id="fa-con">${ops.map(x => `<option value="${esc(x.v)}">${esc(x.nombre)} ${sgn(x.bono) || "+0"}</option>`).join("")}</select></label>
+    <label class="field" style="max-width:100px"><span>Dados de daño</span><input type="text" id="fa-dano" class="mono" value="${esc(op.dado)}" ${op.libre ? "" : "readonly"}></label>
     ${c.dadosFisicos ? `<label class="field" style="max-width:110px"><span>Tu d20</span>${inputDado(`id="fa-d20"`)}</label>` : ""}
     <button class="btn sm primary" data-act="cb-atacar-pj" ${S.busy ? "disabled" : ""}>Atacar</button></div>
-    <span class="small muted">Lo que escribas en el cuadro de abajo se envía como descripción del ataque.</span></div>`;
+    <span class="small" id="fa-hint">${ataqueHint(op)}</span>
+    <span class="small muted">${sinArmas ? `No tiene armas equipadas: añádelas en su inventario (panel de la derecha) y aparecerán aquí con sus bonificaciones. ` : ""}Lo que escribas en el cuadro de abajo se envía como descripción del ataque.</span></div>`;
 }
 // Panel lateral del jugador: solo su personaje, sus PG, sus bonificadores y sus tiradas
 function panelJugador(c, p){
@@ -294,7 +294,8 @@ function panelJugador(c, p){
       <button class="btn sm" data-act="cb-libre" ${S.busy ? "disabled" : ""}>${c.dadosFisicos ? "Calcular" : "Tirar"}</button>
     </div>
     ${c.dadosFisicos ? `<p class="small muted">Dados físicos: tira tus dados de verdad, escribe lo que sale y la app suma tus bonificadores.</p>` : ""}
-  </div>`;
+  </div>
+  <div class="panel"><details class="inv-d" ${S.invAbierto ? "open" : ""}><summary><b>Inventario</b> <span class="small muted">${po(invDe(p).oro)} · ${invDe(p).objetos.reduce((n, o) => n + (+o.cant || 1), 0)} objetos · ${armasEquipadas(p).map(o => esc(o.nombre)).join(", ") || "sin armas equipadas"}</span></summary>${invHtml(p, c)}</details></div>`;
 }
 // Panel lateral del DM: qué pasa con cada jugador (PG, lo que le has pedido, su iniciativa y lo último que hizo)
 function panelGrupoDM(c, grupo){
@@ -308,13 +309,7 @@ function panelGrupoDM(c, grupo){
         <div class="hp"><button data-act="hp" data-id="${p.id}" data-d="-1" aria-label="Quitar 1 PG">−</button><span class="mono">${act}/${d.pg}</span><button data-act="hp" data-id="${p.id}" data-d="1" aria-label="Sumar 1 PG">+</button></div>
         <div class="hpbar"><i style="width:${pct}%;background:${pct<=25?"var(--bad)":pct<=50?"var(--warn)":"var(--ok)"}"></i></div>
         <div class="estado-j">${xpBarHtml(p, true)}</div><div class="estado-j small">${act <= 0 ? `<span class="chip warn">Inconsciente</span>` : ""}${mis.map(r => `<span class="chip warn">Esperando: ${esc(r.lab.replace(/\s*\([^)]*\)\s*$/, ""))}${r.cd ? " " + esc(r.cd) : ""}</span>`).join("")}${e && e.dado == null ? `<span class="chip warn">Falta su iniciativa</span>` : ""}${u ? `<div class="muted">Último: ${rich(u).replace(/<\/?p>/g, "")}</div>` : ""}</div></div>`; }).join("") : `<p class="small muted">Aún no hay personajes en la partida.</p>`}
-    ${grupo.length ? `<details class="dar-xp"><summary class="small"><b>Dar experiencia</b> (misión, escena, buena idea…)</summary><div class="row">
-      <label class="field"><span>A</span><select id="xp-a">${grupo.length > 1 ? `<option value="*">Todo el grupo</option>` : ""}${grupo.map(p => `<option value="${p.id}">${esc(p.nombre)}</option>`).join("")}</select></label>
-      <label class="field" style="max-width:100px"><span>PX</span><input type="number" id="xp-n" min="1" max="100000" value="100" class="mono"></label>
-      <label class="field"><span>Motivo</span><input type="text" id="xp-motivo" placeholder="Misión cumplida"></label>
-      <label class="switch small"><input type="checkbox" id="xp-rep"> Repartir el total entre todos</label>
-      <button class="btn sm" data-act="cb-xp">Dar PX</button></div>
-      <p class="small muted">Con ${XP_NIVEL[1]} PX se llega a nivel 2 y con ${XP_NIVEL[2]} a nivel 3. Una misión pequeña suele dar lo mismo que un combate medio para el grupo. Al llegar al umbral, el personaje sube de nivel solo.</p></details>` : ""}
+    ${grupo.length ? `<details class="dar-xp"><summary class="small"><b>Dar recompensas</b>: experiencia, oro u objetos a cada jugador</summary>${recompensasHtml(c, grupo, false)}</details>` : ""}
   </div>`;
 }
 // Reparte experiencia (la base de datos sube de nivel a quien llegue al umbral y lo anuncia en el chat)
@@ -323,15 +318,6 @@ async function darExperiencia(c, pjIds, cantidad, motivo){
   const r = await q(sb.rpc("dm_dar_experiencia", { p:c.id, pjs:pjIds, cantidad, motivo:motivo || "" }));
   for (const x of r || []){ const p = pjById(x.pj); if (p){ p.xp = x.xp; p.nivel = x.nivel; } if (x.nivel > x.antes) toast(`¡${esc(pjById(x.pj)?.nombre || "")} sube a nivel ${x.nivel}!`, 5000); }
   const f = await q(sb.from("dm_partidas").select("log").eq("id", c.id).single()); c.log = f.log || c.log;
-}
-async function darExperienciaForm(c){
-  const v = $("#xp-a").value, ids = v === "*" ? grupoDe(c.id).map(p => p.id) : [v], n = Math.round(+$("#xp-n").value || 0);
-  if (n < 1){ toast("Escribe cuántos PX das."); return; }
-  const cada = $("#xp-rep").checked ? Math.floor(n / ids.length) : n;
-  if (cada < 1){ toast("Son muy pocos PX para repartir entre todos."); return; }
-  S.busy = true;
-  try { await darExperiencia(c, ids, cada, $("#xp-motivo").value.trim()); } catch (e) { toast(esc(errorTexto(e))); }
-  S.busy = false; render();
 }
 // Herramienta de reserva del DM: escribir el dado de un jugador que no tiene la app abierta
 function fisicaHtml(c, grupo){
@@ -470,11 +456,12 @@ async function ataqueEnemigo(c){
 }
 async function ataqueJugador(c){
   const pjId = vozActual(c), p = pjById(pjId), k = cb(c), e = k.orden.find(x => x.id === $("#fa-obj")?.value); if (!p || !e) return;
-  const con = $("#fa-con").value, dado = $("#fa-dano").value.trim() || "1d8", { mod:bono, car } = modTirada(p, "at:" + con), mod = modOf(derive(p).sc[car]);
+  const op = ataquesDe(p).find(x => x.v === $("#fa-con")?.value); if (!op) return;
+  const dado = (op.libre ? $("#fa-dano").value.trim() : op.dado) || op.dado;
   try { partesNot(dado); } catch (er) { toast(esc(er.message)); return; }
-  let r; try { r = tirarCon(c, `1d20${sgn(bono)}`, `Ataque de ${p.nombre}`, S.trayMode, $("#fa-d20")?.value); } catch (er) { toast(esc(er.message)); return; }
+  let r; try { r = tirarCon(c, `1d20${sgn(op.bono)}`, `Ataque de ${p.nombre} con ${op.corto}`, S.trayMode, $("#fa-d20")?.value); } catch (er) { toast(esc(er.message)); return; }
   const impacta = !r.pifia && (r.crit || r.total >= +e.ca);
-  const a = { c:c.id, pj:p.id, e:e.id, con, r, impacta, dn:(r.crit ? doblarDados(dado) : dado) + (con === "MAG" ? "" : sgn(mod)) };
+  const a = { c:c.id, pj:p.id, e:e.id, con:op.corto, r, impacta, dn:(r.crit ? doblarDados(dado) : dado) + sgn(op.mDano) };
   if (impacta && c.dadosFisicos){ S.atq = a; render(); $("#fa-dv")?.focus(); return; }
   publicarAtaque(c, a, impacta ? rollNotation(a.dn) : null);
 }
@@ -489,7 +476,7 @@ async function publicarAtaque(c, a, dmg){
   const p = pjById(a.pj), e = cb(c).orden.find(x => x.id === a.e); if (!p || !e) return;
   S.busy = true;
   try {
-    let t = `Ataque de ${p.nombre} a ${e.nombre} (${ATQ_CORTO[a.con]}): ${lineaTirada(a.r)} contra CA ${e.ca}: ${a.impacta ? (a.r.crit ? "**¡crítico!**" : "**impacta**.") : "falla."}`;
+    let t = `Ataque de ${p.nombre} a ${e.nombre} (${ATQ_CORTO[a.con] || a.con}): ${lineaTirada(a.r)} contra CA ${e.ca}: ${a.impacta ? (a.r.crit ? "**¡crítico!**" : "**impacta**.") : "falla."}`;
     if (dmg){ const nuevo = await aplicarDano(c, e.id, Math.max(0, dmg.total)); t += `\nDaño: ${lineaTirada(dmg)}. ${trasDano(c, e.id, nuevo)}`; }
     S.atq = null;
     await publicar(c, p.id, t);
@@ -559,7 +546,6 @@ document.addEventListener("click", (ev) => {
         const nom = pjById(obj)?.nombre || cb(c).orden.find(e => e.id === obj)?.nombre || "";
         conDano(c, obj, cura ? -n : n, cura ? `${nom} recupera ${n} PG.` : `${nom} recibe ${n} de daño.`); } break;
     case "cb-fisica": tiradaFisicaDM(c); break;
-    case "cb-xp": darExperienciaForm(c); break;
   }
 });
 document.addEventListener("change", (ev) => {
