@@ -310,3 +310,32 @@ td.mono,th.mono{text-align:center}
 .xpbar>i{display:block;height:100%;background:var(--gold,#8E6A1E)}
 .dar-xp .row{align-items:end;margin-top:6px}
 .estado-j .xpbar-w{width:100%}
+
+/* chat en caja: el historial tiene su propio scroll y el menú queda cerca */
+.chat{min-height:0;max-height:none}
+.log{height:clamp(260px,52vh,600px);overscroll-behavior:contain}
+@media (max-width:900px){.chat{min-height:0}.log{height:clamp(240px,48vh,480px)}}
+.fin-banner{border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:var(--r);padding:10px 12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:var(--surface-2,var(--surface))}
+
+/* inventario */
+.inv{display:grid;gap:8px}
+.inv-oro{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+.inv-oro .oro{font-weight:600;font-size:1.05rem}
+.inv-oro input{width:80px}
+.inv-row{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 0;border-top:1px solid var(--line)}
+.inv-row > div:first-child{min-width:0;flex:1 1 160px}
+.inv-row .row{gap:6px}
+.inv-add .row{align-items:end;margin-top:6px}
+.inv-d summary{cursor:pointer;display:flex;flex-wrap:wrap;gap:6px;align-items:baseline}
+.inv-d[open] summary{margin-bottom:8px}
+
+/* armería */
+table.armas td,table.armas th{vertical-align:middle}
+table.armas td:last-child{text-align:right;white-space:nowrap}
+
+/* recompensas */
+.recompensas{display:grid;gap:10px;margin-top:8px}
+.recompensas .row{align-items:end}
+.rw-row{border-top:1px solid var(--line);padding-top:8px;display:grid;gap:4px}
+.fin-partida{border-color:var(--accent)}
+#fa-hint{display:block}
