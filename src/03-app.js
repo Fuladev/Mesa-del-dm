@@ -6,6 +6,7 @@ const CARGAS = {
   dm_personajes: async () => { S.personajes = (await q(sb.from("dm_personajes").select("*").order("actualizado", {ascending:false}))).map(pjFromRow); },
   dm_partidas: async () => { S.partidas = (await q(sb.from("dm_partidas").select("*").order("actualizado", {ascending:false}))).map(partFromRow); },
   dm_participantes: async () => { S.participantes = await q(sb.from("dm_participantes").select("*")); },
+  dm_hechizos: async () => { try { S.hechizos = (await q(sb.from("dm_hechizos").select("*").order("nombre"))).map(hechizoFromRow); } catch { S.hechizos = []; } },
   dm_armas: async () => { try { S.armas = (await q(sb.from("dm_armas").select("*").order("nombre"))).map(armaFromRow); } catch { S.armas = []; } }
 };
 async function cargarTodo(){ await Promise.all(Object.values(CARGAS).map(f => f())); }
@@ -136,7 +137,7 @@ function pintarMenu(){
 }
 
 /* ==================== router y render ==================== */
-const VIEWS = ["inicio","personajes","facciones","armeria","campanas","jugar","asistente","dados"];
+const VIEWS = ["inicio","personajes","facciones","armeria","hechizos","campanas","jugar","asistente","dados"];
 function route(){
   const h = location.hash.replace("#","");
   S.view = VIEWS.includes(h) ? h : (h.startsWith("w-") ? "dados" : "inicio");
@@ -153,6 +154,7 @@ function render(sinLeer){
   if (!sinLeer && S.edit && S.view === "personajes") leerForm();
   if (!sinLeer && S.editFac && S.view === "facciones") leerFac();
   if (!sinLeer && S.editArma && S.view === "armeria") leerArma();
+  if (!sinLeer && S.editHechizo && S.view === "hechizos") leerHechizo();
   $$(".tab").forEach(a => a.setAttribute("aria-current", a.getAttribute("href") === "#" + S.view ? "page" : "false"));
   pintarMenu();
   const app = $("#app");
@@ -161,7 +163,7 @@ function render(sinLeer){
   if (S.view === "dados") html = vDados();
   else if (!S.me || S.recovery) html = vAuth();
   else if (!S.perfil) html = vElegirUsuario();
-  else html = ({ inicio:vInicio, personajes:vPersonajes, facciones:vFacciones, armeria:vArmeria, campanas:vCampanas, jugar:vJugar, asistente:vAsistente })[S.view]();
+  else html = ({ inicio:vInicio, personajes:vPersonajes, facciones:vFacciones, armeria:vArmeria, hechizos:vGrimorio, campanas:vCampanas, jugar:vJugar, asistente:vAsistente })[S.view]();
   app.innerHTML = html;
   after[S.view]?.();
 }
@@ -226,7 +228,8 @@ function vFicha(p){
     <div class="panel-h"><div style="display:grid;gap:6px"><span class="label">${esc(d.raza.nombre)} · ${esc(p.clase)} · nivel ${p.nivel}</span><h1>${esc(p.nombre)}</h1>${ownerChip(p.dueno)}</div><button class="btn ghost" data-act="pj-volver">Volver</button></div>
     <div class="panel"><div class="stats">${AB.map(k=>`<div class="stat"><span class="k">${k}</span><span class="m">${fm(modOf(d.sc[k]))}</span><span class="s">${d.sc[k]}</span></div>`).join("")}</div>
     <div class="chips"><span class="chip acc">PG ${d.pg}</span><span class="chip acc">CA ${d.ca}</span><span class="chip">Iniciativa ${fm(d.ini)}</span><span class="chip">Competencia ${fm(d.prof)}</span><span class="chip">Velocidad ${d.vel} pies</span></div>${xpBarHtml(p)}${avisosHtml(p)}</div>
-    <div class="panel"><div class="panel-h"><h2>Inventario</h2></div>${invHtml(p, null)}</div>
+    <div class="panel"><div class="panel-h"><h2>Inventario</h2>${p.dueno === S.me ? `<button class="btn sm ghost" data-act="pj-editar" data-id="${p.id}">Editar todo</button>` : ""}</div>${invHtml(p, null)}</div>
+    ${lanzaConjuros(p) || hechizosDe(p).length ? `<div class="panel"><div class="panel-h"><h2>Hechizos</h2></div>${hechizosHtml(p, null)}</div>` : ""}
     <div class="panel"><dl class="kv">${kv.map(([k,v])=>`<dt>${k}</dt><dd>${esc(v)}</dd>`).join("")}</dl></div>
   </section>`;
 }
@@ -315,6 +318,7 @@ function vEditor(){
         <label class="field"><span>Equipo</span><textarea id="f-equipo">${esc(p.equipo)}</textarea></label>
       </div>
     </div>
+    ${editorEquipoHtml(p)}
     <div class="row"><button class="btn primary" data-act="pj-guardar" ${S.busy?"disabled":""}>Guardar personaje</button><button class="btn ghost" data-act="pj-cancelar">Volver sin guardar</button></div>
   </section>`;
 }
@@ -328,6 +332,7 @@ function leerForm(){
   const fc = $("#f-faccion"); if (fc) p.faccion_id = fc.value || null;
   const lv = $("#f-nivel"); if (lv) p.nivel = Math.min(20, Math.max(1, +lv.value || 1));
   const cc = $("#pj-concepto"); if (cc) p._concepto = cc.value;
+  leerEquipo(p);
 }
 function autoAsignar(p){ const vals = p.pool.slice().sort((a,b)=>b-a), pri = CLASES[p.clase].pri; pri.forEach((k,i) => p.base[k] = vals[i]); }
 function tirar4d6(){ const a=[rnd(6),rnd(6),rnd(6),rnd(6)].sort((x,y)=>y-x); return a[0]+a[1]+a[2]; }
@@ -336,7 +341,14 @@ async function guardarPJ(){
   if (!p.nombre.trim()){ toast("Ponle un nombre a tu personaje."); $("#f-nombre")?.focus(); return; }
   if (p.raza_id){ const r = razaInfo(p); p.razaSnap = { nombre:r.nombre, b:r.b, v:r.v, t:(r.t||"").slice(0,300) }; } else delete p.razaSnap;
   const actual = p.id && pjById(p.id); if (actual && (+actual.xp || 0) > (+p.xp || 0)){ p.xp = actual.xp; p.nivel = Math.max(+p.nivel || 1, +actual.nivel || 1); }
-  if (actual) p.inventario = actual.inventario; // el inventario se cambia desde su propio panel
+  const malEq = validarEquipo(p); if (malEq){ toast(esc(malEq)); return; }
+  if (!lanzaConjuros(p)) p.hechizos = [];
+  // Si mientras editabas cambió el inventario fuera del editor (recompensa del DM, compra, poción), se suma lo nuevo
+  if (actual && p._invBase){ const base = JSON.parse(p._invBase), ahora = invDe(actual);
+    if (JSON.stringify(ahora) !== JSON.stringify(base)){ const inv = invDe(p), ids = new Set(base.objetos.map(o => o.id));
+      inv.oro = Math.max(0, inv.oro + ahora.oro - base.oro);
+      for (const o of ahora.objetos) if (!ids.has(o.id) && !inv.objetos.some(x => x.id === o.id)) inv.objetos.push(o);
+      p.inventario = inv; } }
   const row = pjToRow(p);
   S.busy = true; render();
   try {

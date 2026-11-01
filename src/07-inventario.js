@@ -51,8 +51,9 @@ function ataquesDe(p){
   for (const o of armasEquipadas(p)){ const w = o.arma, car = w.car === "SUT" ? (mD > mF ? "DES" : "FUE") : w.car === "MAG" ? conMagia(p) : (w.car || "FUE");
     const mod = modOf(d.sc[car]), mDano = (w.car === "MAG" ? 0 : mod) + (+w.bonoDano || 0);
     out.push({ v:"w:" + o.id, nombre:o.nombre, corto:o.nombre, bono:mod + d.prof + (+w.bonoAt || 0), dado:w.dado || "1d6", mDano, car, tipoDano:w.tipoDano || "" }); }
-  if (CLASES_MAGIA.includes(p.clase)){ const car = conMagia(p); out.push({ v:"MAG", nombre:"Conjuro de ataque", corto:"conjuro", bono:modOf(d.sc[car]) + d.prof, dado:"1d10", mDano:0, car, libre:true }); }
-  if (!out.length || !out.some(x => x.v.startsWith("w:"))){
+  const hz = ataquesHechizo(p); out.push(...hz);
+  if (lanzaConjuros(p) && !hz.length){ const car = conMagia(p); out.push({ v:"MAG", nombre:"Conjuro de ataque", corto:"conjuro", bono:modOf(d.sc[car]) + d.prof, dado:"1d10", mDano:0, car, libre:true }); }
+  if (!out.some(x => x.v.startsWith("w:"))){
     out.push({ v:"FUE", nombre:"Otra arma (Fuerza)", corto:"arma, Fuerza", bono:mF + d.prof, dado:"1d6", mDano:mF, car:"FUE", libre:true });
     out.push({ v:"DES", nombre:"Otra arma (Destreza)", corto:"arma, Destreza", bono:mD + d.prof, dado:"1d6", mDano:mD, car:"DES", libre:true });
   }
@@ -124,7 +125,7 @@ function comprarForm(p){
     `Comprado: ${esc(a?.nombre || POCION_CURA.nombre)} por ${po(precio)}.`);
 }
 
-const ataqueHint = op => `Ataque <b class="mono">1d20${sgn(op.bono) || "+0"}</b> (${esc(AB_N[op.car] || op.car)} + competencia${op.v.startsWith("w:") ? " + arma" : ""}) · daño <b class="mono">${esc(op.dado)}${sgn(op.mDano)}</b>${op.tipoDano ? " " + esc(op.tipoDano) : ""}`;
+const ataqueHint = op => (op.hechizo && op.modo === "salvacion" ? `El objetivo tira salvación de ${esc(AB_N[op.sv])} contra tu CD <b class="mono">${op.cd}</b>${op.mitad ? " (mitad si la supera)" : ""}` : op.hechizo && op.modo === "auto" ? `Impacta sin tirar ataque` : `Ataque <b class="mono">1d20${sgn(op.bono) || "+0"}</b> (${esc(AB_N[op.car] || op.car)} + competencia${op.v.startsWith("w:") ? " + arma" : ""})`) + ` · daño <b class="mono">${esc(op.dado)}${sgn(op.mDano)}</b>${op.tipoDano ? " " + esc(op.tipoDano) : ""}`;
 
 /* ---------- Armería (vista) ---------- */
 function nuevaArma(base){ const b = base || ARMAS_SRD.find(a => a.nombre === "Espada larga");
@@ -269,7 +270,7 @@ document.addEventListener("change", (ev) => {
   if (t.id === "fa-con"){ const p = pjById(vozActual(partida(S.playId))), op = p && ataquesDe(p).find(x => x.v === t.value); if (!op) return;
     const dn = $("#fa-dano"); if (dn){ dn.value = op.dado; dn.readOnly = !op.libre; } const h = $("#fa-hint"); if (h) h.innerHTML = ataqueHint(op); }
 });
-document.addEventListener("toggle", (ev) => { if (ev.target.matches?.(".inv-d")) S.invAbierto = ev.target.open; }, true);
+document.addEventListener("toggle", (ev) => { if (ev.target.matches?.(".hz-d")) S.hzAbierto = ev.target.open; else if (ev.target.matches?.(".inv-d")) S.invAbierto = ev.target.open; }, true);
 document.addEventListener("input", (ev) => {
   const t = ev.target;
   if (t.matches(".rw-todos")) $$(".rw-xp", t.closest(".recompensas")).forEach(i => { i.value = t.value; });

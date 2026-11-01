@@ -339,3 +339,11 @@ table.armas td:last-child{text-align:right;white-space:nowrap}
 .rw-row{border-top:1px solid var(--line);padding-top:8px;display:grid;gap:4px}
 .fin-partida{border-color:var(--accent)}
 #fa-hint{display:block}
+
+/* editor de equipo y hechizos */
+.ed-equipo h3{margin-top:6px}
+.ed-obj{border-top:1px solid var(--line);padding-top:8px}
+.ed-obj .row,.ed-add{align-items:end}
+.checks{display:flex;flex-wrap:wrap;gap:6px 14px}
+.hechizos{display:grid;gap:6px}
+.hechizos select{width:auto;max-width:140px}
