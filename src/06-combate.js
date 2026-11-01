@@ -40,7 +40,7 @@ const CON_ATAQUE = { FUE:"Arma (Fuerza)", DES:"Arma sutil o a distancia (Destrez
 const ATQ_CORTO = { FUE:"arma, Fuerza", DES:"arma, Destreza", MAG:"conjuro" };
 const sinTildes = s => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 const compHab = (p, hab) => sinTildes(p.competencias).includes(sinTildes(hab));
-const conMagia = p => (CLASES[p.clase]?.pri || ["INT"])[0];
+const conMagia = p => CAR_MAGIA[p.clase] || (CLASES[p.clase]?.pri || ["INT"])[0];
 const sgn = n => n ? (n > 0 ? "+" : "−") + Math.abs(n) : "";
 
 /* ---------- estado ---------- */
@@ -253,7 +253,7 @@ function accionesJugador(c, pjId){
   }
   const a = S.atq?.c === c.id ? S.atq : null;
   if (a){ const e = k.orden.find(x => x.id === a.e);
-    out.push(`<div class="accion mio"><div><b>¡${esc(pjById(a.pj)?.nombre || "")} impacta a ${esc(e?.nombre || "")}${a.r.crit ? " con un crítico" : ""}!</b> Tira el daño: <span class="mono">${esc(a.dn)}</span>${a.r.crit ? " (crítico: dados dobles)" : ""}.</div>
+    out.push(`<div class="accion mio"><div><b>¡${a.hechizo ? esc(a.con) + " alcanza" : esc(pjById(a.pj)?.nombre || "") + " impacta"} a ${esc(e?.nombre || "")}${a.r?.crit ? " con un crítico" : ""}${a.mult === 0.5 ? " (supera la salvación: mitad de daño)" : ""}!</b> Tira el daño: <span class="mono">${esc(a.dn)}</span>${a.r?.crit ? " (crítico: dados dobles)" : ""}.</div>
       <div class="row">${inputDado(`id="fa-dv" aria-label="Suma de los dados de daño"`, "suma de los dados")}<button class="btn sm primary" data-act="cb-dano-pj">Aplicar daño</button><button class="btn sm ghost" data-act="cb-atq-no">Cancelar</button></div></div>`);
   } else if (k.activo && k.turno >= 0){ const ya = ataqueEsteTurno(c, pjId);
     out.push(ya ? `<div class="accion hecho"><div><b>Ya has atacado este turno.</b> ${rich(ya.split("\n").slice(-2).join(" ")).replace(/<\/?p>/g, "")}</div><span class="small muted">Espera a que el DM pase al siguiente turno.</span></div>` : formAtaque(c, pjId)); }
@@ -295,7 +295,8 @@ function panelJugador(c, p){
     </div>
     ${c.dadosFisicos ? `<p class="small muted">Dados físicos: tira tus dados de verdad, escribe lo que sale y la app suma tus bonificadores.</p>` : ""}
   </div>
-  <div class="panel"><details class="inv-d" ${S.invAbierto ? "open" : ""}><summary><b>Inventario</b> <span class="small muted">${po(invDe(p).oro)} · ${invDe(p).objetos.reduce((n, o) => n + (+o.cant || 1), 0)} objetos · ${armasEquipadas(p).map(o => esc(o.nombre)).join(", ") || "sin armas equipadas"}</span></summary>${invHtml(p, c)}</details></div>`;
+  <div class="panel"><details class="inv-d" ${S.invAbierto ? "open" : ""}><summary><b>Inventario</b> <span class="small muted">${po(invDe(p).oro)} · ${invDe(p).objetos.reduce((n, o) => n + (+o.cant || 1), 0)} objetos · ${armasEquipadas(p).map(o => esc(o.nombre)).join(", ") || "sin armas equipadas"}</span></summary>${invHtml(p, c)}</details></div>
+  ${lanzaConjuros(p) ? `<div class="panel"><details class="inv-d hz-d" ${S.hzAbierto ? "open" : ""}><summary><b>Hechizos</b> <span class="small muted">${hechizosDe(p).length} · ataque ${fm(magiaDe(p).ataque)} · CD ${magiaDe(p).cd}</span></summary>${hechizosHtml(p, c)}</details></div>` : ""}`;
 }
 // Panel lateral del DM: qué pasa con cada jugador (PG, lo que le has pedido, su iniciativa y lo último que hizo)
 function panelGrupoDM(c, grupo){
@@ -459,6 +460,15 @@ async function ataqueJugador(c){
   const op = ataquesDe(p).find(x => x.v === $("#fa-con")?.value); if (!op) return;
   const dado = (op.libre ? $("#fa-dano").value.trim() : op.dado) || op.dado;
   try { partesNot(dado); } catch (er) { toast(esc(er.message)); return; }
+  // Hechizos que no tiran ataque: impactan siempre, o el objetivo tira su salvación contra tu CD (la tira la app)
+  if (op.hechizo && op.modo !== "ataque"){
+    let sv = null, mult = 1;
+    if (op.modo === "salvacion"){ const m = op.sv === "DES" ? (+e.mod || 0) : 0, dd = rnd(20), total = dd + m, pasa = dd !== 1 && (dd === 20 || total >= op.cd);
+      sv = { dd, m, total, pasa }; mult = pasa ? (op.mitad ? 0.5 : 0) : 1; }
+    const a = { c:c.id, pj:p.id, e:e.id, con:op.corto, r:null, hechizo:op, sv, mult, impacta:mult > 0, dn:dado + sgn(op.mDano) };
+    if (mult > 0 && c.dadosFisicos){ S.atq = a; render(); $("#fa-dv")?.focus(); return; }
+    publicarAtaque(c, a, mult > 0 ? rollNotation(a.dn) : null); return;
+  }
   let r; try { r = tirarCon(c, `1d20${sgn(op.bono)}`, `Ataque de ${p.nombre} con ${op.corto}`, S.trayMode, $("#fa-d20")?.value); } catch (er) { toast(esc(er.message)); return; }
   const impacta = !r.pifia && (r.crit || r.total >= +e.ca);
   const a = { c:c.id, pj:p.id, e:e.id, con:op.corto, r, impacta, dn:(r.crit ? doblarDados(dado) : dado) + sgn(op.mDano) };
@@ -476,11 +486,13 @@ async function publicarAtaque(c, a, dmg){
   const p = pjById(a.pj), e = cb(c).orden.find(x => x.id === a.e); if (!p || !e) return;
   S.busy = true;
   try {
-    let t = `Ataque de ${p.nombre} a ${e.nombre} (${ATQ_CORTO[a.con] || a.con}): ${lineaTirada(a.r)} contra CA ${e.ca}: ${a.impacta ? (a.r.crit ? "**¡crítico!**" : "**impacta**.") : "falla."}`;
-    if (dmg){ const nuevo = await aplicarDano(c, e.id, Math.max(0, dmg.total)); t += `\nDaño: ${lineaTirada(dmg)}. ${trasDano(c, e.id, nuevo)}`; }
+    let t = a.r ? `Ataque de ${p.nombre} a ${e.nombre} (${ATQ_CORTO[a.con] || a.con}): ${lineaTirada(a.r)} contra CA ${e.ca}: ${a.impacta ? (a.r.crit ? "**¡crítico!**" : "**impacta**.") : "falla."}`
+      : `Ataque de ${p.nombre} a ${e.nombre} (${a.con}): ` + (a.sv ? `salvación de ${AB_N[a.hechizo.sv]} de ${e.nombre}: d20 [${a.sv.dd}] ${sgn(a.sv.m) || "+0"} = ${a.sv.total} contra CD ${a.hechizo.cd}: ${a.sv.pasa ? (a.mult ? "la supera, **recibe la mitad**." : "la supera, **no le afecta**.") : "**falla la salvación**."}` : "**impacta sin fallar**.");
+    if (dmg){ const total = Math.max(0, Math.floor(dmg.total * (a.mult ?? 1))), nuevo = await aplicarDano(c, e.id, total); t += `\nDaño: ${lineaTirada(dmg)}${a.mult === 0.5 ? ` → mitad: **${total}**` : ""}${a.hechizo?.tipoDano ? " de " + a.hechizo.tipoDano : ""}. ${trasDano(c, e.id, nuevo)}`; dmg = { ...dmg, total }; }
     S.atq = null;
     await publicar(c, p.id, t);
-    avisoAtaque(p.nombre, a.r, +e.ca, dmg, actorActual(c)?.id === p.id);
+    if (a.r) avisoAtaque(p.nombre, a.r, +e.ca, dmg, actorActual(c)?.id === p.id);
+    else toast((a.impacta ? `<b>${esc(a.con)} alcanza a ${esc(e.nombre)}.</b>${dmg ? ` ${dmg.total} de daño.` : ""}` : `<b>${esc(e.nombre)} supera la salvación</b> contra ${esc(a.con)}.`) + (actorActual(c)?.id === p.id ? " Pasa el turno." : ""), 5000);
     await pasarTurnoTras(c, p.id);
   } catch (er) { toast(esc(errorTexto(er))); }
   S.busy = false; render();

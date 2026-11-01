@@ -88,7 +88,7 @@ document.addEventListener("click", async (ev) => {
     case "ejemplo": cargarEjemplo(); break;
     // personajes
     case "pj-nuevo": S.edit = nuevoPJ(); S.verPj = null; ir("#personajes"); window.scrollTo(0,0); break;
-    case "pj-editar": { const p = pjById(id); if (!p) break; S.edit = clone(p); S.edit.pool ||= AB.map(k => S.edit.base[k]); S.edit.base ||= {FUE:10,DES:10,CON:10,INT:10,SAB:10,CAR:10}; render(); window.scrollTo(0,0); } break;
+    case "pj-editar": { const p = pjById(id); if (!p) break; S.edit = clone(p); S.edit._invBase = JSON.stringify(invDe(p)); S.verPj = null; S.edit.pool ||= AB.map(k => S.edit.base[k]); S.edit.base ||= {FUE:10,DES:10,CON:10,INT:10,SAB:10,CAR:10}; render(); window.scrollTo(0,0); } break;
     case "pj-ver": S.verPj = id; render(); window.scrollTo(0,0); break;
     case "pj-volver": S.verPj = null; render(); break;
     case "pj-cancelar": S.edit = null; render(); break;

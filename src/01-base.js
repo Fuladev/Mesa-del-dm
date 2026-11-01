@@ -59,10 +59,10 @@ const sb = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseKey);
 /* ==================== estado ==================== */
 const S = {
   view:"inicio", loaded:false, user:null, me:null, perfil:null, recovery:false, authMode:"entrar",
-  perfiles:{}, facciones:[], armas:[], personajes:[], partidas:[], participantes:[], asesor:{},
+  perfiles:{}, facciones:[], armas:[], hechizos:[], personajes:[], partidas:[], participantes:[], asesor:{},
   edit:null, verPj:null, editFac:null, verFac:null, campSel:null, playId:null, dmId:null,
   busy:false, err:"", trayMode:"normal", hist:[], camForm:null, draft:"",
-  pjFiltro:"mios", facFiltro:"todas", spoilers:false, pending:false, habla:{}, turnoVisto:{}, editArma:null, fin:null
+  pjFiltro:"mios", facFiltro:"todas", spoilers:false, pending:false, habla:{}, turnoVisto:{}, editArma:null, fin:null, editHechizo:null, hzFiltro:""
 };
 
 /* ==================== búsquedas ==================== */
@@ -80,7 +80,7 @@ function ownerChip(uid){ return `<span class="owner ${uid===S.me?"me":""}"><i></
 
 /* ==================== filas ⇄ objetos ==================== */
 function pjFromRow(r){ return { ...(r.datos || {}), id:r.id, dueno:r.dueno, nombre:r.nombre, raza_id:r.raza_id, faccion_id:r.faccion_id, actualizado:r.actualizado }; }
-function pjToRow(p){ const { id, dueno, nombre, raza_id, faccion_id, actualizado, _concepto, ...datos } = p; return { nombre, raza_id: raza_id || null, faccion_id: faccion_id || null, datos }; }
+function pjToRow(p){ const { id, dueno, nombre, raza_id, faccion_id, actualizado, _concepto, _invBase, ...datos } = p; return { nombre, raza_id: raza_id || null, faccion_id: faccion_id || null, datos }; }
 function facFromRow(r){ return { ...(r.datos || {}), id:r.id, autor:r.autor, tipo:r.tipo, nombre:r.nombre, actualizado:r.actualizado }; }
 function facToRow(f){ const { id, autor, tipo, nombre, actualizado, ...datos } = f; return { tipo, nombre, datos }; }
 const CAMPOS_CAMP = ["gancho","sinopsis","actos","pnjs","lugares","giros","final","consejosDM","ambiente","tono","duracion","nivel","jugadores","ejemplo"];

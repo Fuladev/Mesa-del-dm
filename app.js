@@ -59,10 +59,10 @@ const sb = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseKey);
 /* ==================== estado ==================== */
 const S = {
   view:"inicio", loaded:false, user:null, me:null, perfil:null, recovery:false, authMode:"entrar",
-  perfiles:{}, facciones:[], armas:[], personajes:[], partidas:[], participantes:[], asesor:{},
+  perfiles:{}, facciones:[], armas:[], hechizos:[], personajes:[], partidas:[], participantes:[], asesor:{},
   edit:null, verPj:null, editFac:null, verFac:null, campSel:null, playId:null, dmId:null,
   busy:false, err:"", trayMode:"normal", hist:[], camForm:null, draft:"",
-  pjFiltro:"mios", facFiltro:"todas", spoilers:false, pending:false, habla:{}, turnoVisto:{}, editArma:null, fin:null
+  pjFiltro:"mios", facFiltro:"todas", spoilers:false, pending:false, habla:{}, turnoVisto:{}, editArma:null, fin:null, editHechizo:null, hzFiltro:""
 };
 
 /* ==================== búsquedas ==================== */
@@ -80,7 +80,7 @@ function ownerChip(uid){ return `<span class="owner ${uid===S.me?"me":""}"><i></
 
 /* ==================== filas ⇄ objetos ==================== */
 function pjFromRow(r){ return { ...(r.datos || {}), id:r.id, dueno:r.dueno, nombre:r.nombre, raza_id:r.raza_id, faccion_id:r.faccion_id, actualizado:r.actualizado }; }
-function pjToRow(p){ const { id, dueno, nombre, raza_id, faccion_id, actualizado, _concepto, ...datos } = p; return { nombre, raza_id: raza_id || null, faccion_id: faccion_id || null, datos }; }
+function pjToRow(p){ const { id, dueno, nombre, raza_id, faccion_id, actualizado, _concepto, _invBase, ...datos } = p; return { nombre, raza_id: raza_id || null, faccion_id: faccion_id || null, datos }; }
 function facFromRow(r){ return { ...(r.datos || {}), id:r.id, autor:r.autor, tipo:r.tipo, nombre:r.nombre, actualizado:r.actualizado }; }
 function facToRow(f){ const { id, autor, tipo, nombre, actualizado, ...datos } = f; return { tipo, nombre, datos }; }
 const CAMPOS_CAMP = ["gancho","sinopsis","actos","pnjs","lugares","giros","final","consejosDM","ambiente","tono","duracion","nivel","jugadores","ejemplo"];
@@ -455,6 +455,7 @@ const CARGAS = {
   dm_personajes: async () => { S.personajes = (await q(sb.from("dm_personajes").select("*").order("actualizado", {ascending:false}))).map(pjFromRow); },
   dm_partidas: async () => { S.partidas = (await q(sb.from("dm_partidas").select("*").order("actualizado", {ascending:false}))).map(partFromRow); },
   dm_participantes: async () => { S.participantes = await q(sb.from("dm_participantes").select("*")); },
+  dm_hechizos: async () => { try { S.hechizos = (await q(sb.from("dm_hechizos").select("*").order("nombre"))).map(hechizoFromRow); } catch { S.hechizos = []; } },
   dm_armas: async () => { try { S.armas = (await q(sb.from("dm_armas").select("*").order("nombre"))).map(armaFromRow); } catch { S.armas = []; } }
 };
 async function cargarTodo(){ await Promise.all(Object.values(CARGAS).map(f => f())); }
@@ -585,7 +586,7 @@ function pintarMenu(){
 }
 
 /* ==================== router y render ==================== */
-const VIEWS = ["inicio","personajes","facciones","armeria","campanas","jugar","asistente","dados"];
+const VIEWS = ["inicio","personajes","facciones","armeria","hechizos","campanas","jugar","asistente","dados"];
 function route(){
   const h = location.hash.replace("#","");
   S.view = VIEWS.includes(h) ? h : (h.startsWith("w-") ? "dados" : "inicio");
@@ -602,6 +603,7 @@ function render(sinLeer){
   if (!sinLeer && S.edit && S.view === "personajes") leerForm();
   if (!sinLeer && S.editFac && S.view === "facciones") leerFac();
   if (!sinLeer && S.editArma && S.view === "armeria") leerArma();
+  if (!sinLeer && S.editHechizo && S.view === "hechizos") leerHechizo();
   $$(".tab").forEach(a => a.setAttribute("aria-current", a.getAttribute("href") === "#" + S.view ? "page" : "false"));
   pintarMenu();
   const app = $("#app");
@@ -610,7 +612,7 @@ function render(sinLeer){
   if (S.view === "dados") html = vDados();
   else if (!S.me || S.recovery) html = vAuth();
   else if (!S.perfil) html = vElegirUsuario();
-  else html = ({ inicio:vInicio, personajes:vPersonajes, facciones:vFacciones, armeria:vArmeria, campanas:vCampanas, jugar:vJugar, asistente:vAsistente })[S.view]();
+  else html = ({ inicio:vInicio, personajes:vPersonajes, facciones:vFacciones, armeria:vArmeria, hechizos:vGrimorio, campanas:vCampanas, jugar:vJugar, asistente:vAsistente })[S.view]();
   app.innerHTML = html;
   after[S.view]?.();
 }
@@ -675,7 +677,8 @@ function vFicha(p){
     <div class="panel-h"><div style="display:grid;gap:6px"><span class="label">${esc(d.raza.nombre)} · ${esc(p.clase)} · nivel ${p.nivel}</span><h1>${esc(p.nombre)}</h1>${ownerChip(p.dueno)}</div><button class="btn ghost" data-act="pj-volver">Volver</button></div>
     <div class="panel"><div class="stats">${AB.map(k=>`<div class="stat"><span class="k">${k}</span><span class="m">${fm(modOf(d.sc[k]))}</span><span class="s">${d.sc[k]}</span></div>`).join("")}</div>
     <div class="chips"><span class="chip acc">PG ${d.pg}</span><span class="chip acc">CA ${d.ca}</span><span class="chip">Iniciativa ${fm(d.ini)}</span><span class="chip">Competencia ${fm(d.prof)}</span><span class="chip">Velocidad ${d.vel} pies</span></div>${xpBarHtml(p)}${avisosHtml(p)}</div>
-    <div class="panel"><div class="panel-h"><h2>Inventario</h2></div>${invHtml(p, null)}</div>
+    <div class="panel"><div class="panel-h"><h2>Inventario</h2>${p.dueno === S.me ? `<button class="btn sm ghost" data-act="pj-editar" data-id="${p.id}">Editar todo</button>` : ""}</div>${invHtml(p, null)}</div>
+    ${lanzaConjuros(p) || hechizosDe(p).length ? `<div class="panel"><div class="panel-h"><h2>Hechizos</h2></div>${hechizosHtml(p, null)}</div>` : ""}
     <div class="panel"><dl class="kv">${kv.map(([k,v])=>`<dt>${k}</dt><dd>${esc(v)}</dd>`).join("")}</dl></div>
   </section>`;
 }
@@ -764,6 +767,7 @@ function vEditor(){
         <label class="field"><span>Equipo</span><textarea id="f-equipo">${esc(p.equipo)}</textarea></label>
       </div>
     </div>
+    ${editorEquipoHtml(p)}
     <div class="row"><button class="btn primary" data-act="pj-guardar" ${S.busy?"disabled":""}>Guardar personaje</button><button class="btn ghost" data-act="pj-cancelar">Volver sin guardar</button></div>
   </section>`;
 }
@@ -777,6 +781,7 @@ function leerForm(){
   const fc = $("#f-faccion"); if (fc) p.faccion_id = fc.value || null;
   const lv = $("#f-nivel"); if (lv) p.nivel = Math.min(20, Math.max(1, +lv.value || 1));
   const cc = $("#pj-concepto"); if (cc) p._concepto = cc.value;
+  leerEquipo(p);
 }
 function autoAsignar(p){ const vals = p.pool.slice().sort((a,b)=>b-a), pri = CLASES[p.clase].pri; pri.forEach((k,i) => p.base[k] = vals[i]); }
 function tirar4d6(){ const a=[rnd(6),rnd(6),rnd(6),rnd(6)].sort((x,y)=>y-x); return a[0]+a[1]+a[2]; }
@@ -785,7 +790,14 @@ async function guardarPJ(){
   if (!p.nombre.trim()){ toast("Ponle un nombre a tu personaje."); $("#f-nombre")?.focus(); return; }
   if (p.raza_id){ const r = razaInfo(p); p.razaSnap = { nombre:r.nombre, b:r.b, v:r.v, t:(r.t||"").slice(0,300) }; } else delete p.razaSnap;
   const actual = p.id && pjById(p.id); if (actual && (+actual.xp || 0) > (+p.xp || 0)){ p.xp = actual.xp; p.nivel = Math.max(+p.nivel || 1, +actual.nivel || 1); }
-  if (actual) p.inventario = actual.inventario; // el inventario se cambia desde su propio panel
+  const malEq = validarEquipo(p); if (malEq){ toast(esc(malEq)); return; }
+  if (!lanzaConjuros(p)) p.hechizos = [];
+  // Si mientras editabas cambió el inventario fuera del editor (recompensa del DM, compra, poción), se suma lo nuevo
+  if (actual && p._invBase){ const base = JSON.parse(p._invBase), ahora = invDe(actual);
+    if (JSON.stringify(ahora) !== JSON.stringify(base)){ const inv = invDe(p), ids = new Set(base.objetos.map(o => o.id));
+      inv.oro = Math.max(0, inv.oro + ahora.oro - base.oro);
+      for (const o of ahora.objetos) if (!ids.has(o.id) && !inv.objetos.some(x => x.id === o.id)) inv.objetos.push(o);
+      p.inventario = inv; } }
   const row = pjToRow(p);
   S.busy = true; render();
   try {
@@ -1472,7 +1484,7 @@ const CON_ATAQUE = { FUE:"Arma (Fuerza)", DES:"Arma sutil o a distancia (Destrez
 const ATQ_CORTO = { FUE:"arma, Fuerza", DES:"arma, Destreza", MAG:"conjuro" };
 const sinTildes = s => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 const compHab = (p, hab) => sinTildes(p.competencias).includes(sinTildes(hab));
-const conMagia = p => (CLASES[p.clase]?.pri || ["INT"])[0];
+const conMagia = p => CAR_MAGIA[p.clase] || (CLASES[p.clase]?.pri || ["INT"])[0];
 const sgn = n => n ? (n > 0 ? "+" : "−") + Math.abs(n) : "";
 
 /* ---------- estado ---------- */
@@ -1685,7 +1697,7 @@ function accionesJugador(c, pjId){
   }
   const a = S.atq?.c === c.id ? S.atq : null;
   if (a){ const e = k.orden.find(x => x.id === a.e);
-    out.push(`<div class="accion mio"><div><b>¡${esc(pjById(a.pj)?.nombre || "")} impacta a ${esc(e?.nombre || "")}${a.r.crit ? " con un crítico" : ""}!</b> Tira el daño: <span class="mono">${esc(a.dn)}</span>${a.r.crit ? " (crítico: dados dobles)" : ""}.</div>
+    out.push(`<div class="accion mio"><div><b>¡${a.hechizo ? esc(a.con) + " alcanza" : esc(pjById(a.pj)?.nombre || "") + " impacta"} a ${esc(e?.nombre || "")}${a.r?.crit ? " con un crítico" : ""}${a.mult === 0.5 ? " (supera la salvación: mitad de daño)" : ""}!</b> Tira el daño: <span class="mono">${esc(a.dn)}</span>${a.r?.crit ? " (crítico: dados dobles)" : ""}.</div>
       <div class="row">${inputDado(`id="fa-dv" aria-label="Suma de los dados de daño"`, "suma de los dados")}<button class="btn sm primary" data-act="cb-dano-pj">Aplicar daño</button><button class="btn sm ghost" data-act="cb-atq-no">Cancelar</button></div></div>`);
   } else if (k.activo && k.turno >= 0){ const ya = ataqueEsteTurno(c, pjId);
     out.push(ya ? `<div class="accion hecho"><div><b>Ya has atacado este turno.</b> ${rich(ya.split("\n").slice(-2).join(" ")).replace(/<\/?p>/g, "")}</div><span class="small muted">Espera a que el DM pase al siguiente turno.</span></div>` : formAtaque(c, pjId)); }
@@ -1727,7 +1739,8 @@ function panelJugador(c, p){
     </div>
     ${c.dadosFisicos ? `<p class="small muted">Dados físicos: tira tus dados de verdad, escribe lo que sale y la app suma tus bonificadores.</p>` : ""}
   </div>
-  <div class="panel"><details class="inv-d" ${S.invAbierto ? "open" : ""}><summary><b>Inventario</b> <span class="small muted">${po(invDe(p).oro)} · ${invDe(p).objetos.reduce((n, o) => n + (+o.cant || 1), 0)} objetos · ${armasEquipadas(p).map(o => esc(o.nombre)).join(", ") || "sin armas equipadas"}</span></summary>${invHtml(p, c)}</details></div>`;
+  <div class="panel"><details class="inv-d" ${S.invAbierto ? "open" : ""}><summary><b>Inventario</b> <span class="small muted">${po(invDe(p).oro)} · ${invDe(p).objetos.reduce((n, o) => n + (+o.cant || 1), 0)} objetos · ${armasEquipadas(p).map(o => esc(o.nombre)).join(", ") || "sin armas equipadas"}</span></summary>${invHtml(p, c)}</details></div>
+  ${lanzaConjuros(p) ? `<div class="panel"><details class="inv-d hz-d" ${S.hzAbierto ? "open" : ""}><summary><b>Hechizos</b> <span class="small muted">${hechizosDe(p).length} · ataque ${fm(magiaDe(p).ataque)} · CD ${magiaDe(p).cd}</span></summary>${hechizosHtml(p, c)}</details></div>` : ""}`;
 }
 // Panel lateral del DM: qué pasa con cada jugador (PG, lo que le has pedido, su iniciativa y lo último que hizo)
 function panelGrupoDM(c, grupo){
@@ -1891,6 +1904,15 @@ async function ataqueJugador(c){
   const op = ataquesDe(p).find(x => x.v === $("#fa-con")?.value); if (!op) return;
   const dado = (op.libre ? $("#fa-dano").value.trim() : op.dado) || op.dado;
   try { partesNot(dado); } catch (er) { toast(esc(er.message)); return; }
+  // Hechizos que no tiran ataque: impactan siempre, o el objetivo tira su salvación contra tu CD (la tira la app)
+  if (op.hechizo && op.modo !== "ataque"){
+    let sv = null, mult = 1;
+    if (op.modo === "salvacion"){ const m = op.sv === "DES" ? (+e.mod || 0) : 0, dd = rnd(20), total = dd + m, pasa = dd !== 1 && (dd === 20 || total >= op.cd);
+      sv = { dd, m, total, pasa }; mult = pasa ? (op.mitad ? 0.5 : 0) : 1; }
+    const a = { c:c.id, pj:p.id, e:e.id, con:op.corto, r:null, hechizo:op, sv, mult, impacta:mult > 0, dn:dado + sgn(op.mDano) };
+    if (mult > 0 && c.dadosFisicos){ S.atq = a; render(); $("#fa-dv")?.focus(); return; }
+    publicarAtaque(c, a, mult > 0 ? rollNotation(a.dn) : null); return;
+  }
   let r; try { r = tirarCon(c, `1d20${sgn(op.bono)}`, `Ataque de ${p.nombre} con ${op.corto}`, S.trayMode, $("#fa-d20")?.value); } catch (er) { toast(esc(er.message)); return; }
   const impacta = !r.pifia && (r.crit || r.total >= +e.ca);
   const a = { c:c.id, pj:p.id, e:e.id, con:op.corto, r, impacta, dn:(r.crit ? doblarDados(dado) : dado) + sgn(op.mDano) };
@@ -1908,11 +1930,13 @@ async function publicarAtaque(c, a, dmg){
   const p = pjById(a.pj), e = cb(c).orden.find(x => x.id === a.e); if (!p || !e) return;
   S.busy = true;
   try {
-    let t = `Ataque de ${p.nombre} a ${e.nombre} (${ATQ_CORTO[a.con] || a.con}): ${lineaTirada(a.r)} contra CA ${e.ca}: ${a.impacta ? (a.r.crit ? "**¡crítico!**" : "**impacta**.") : "falla."}`;
-    if (dmg){ const nuevo = await aplicarDano(c, e.id, Math.max(0, dmg.total)); t += `\nDaño: ${lineaTirada(dmg)}. ${trasDano(c, e.id, nuevo)}`; }
+    let t = a.r ? `Ataque de ${p.nombre} a ${e.nombre} (${ATQ_CORTO[a.con] || a.con}): ${lineaTirada(a.r)} contra CA ${e.ca}: ${a.impacta ? (a.r.crit ? "**¡crítico!**" : "**impacta**.") : "falla."}`
+      : `Ataque de ${p.nombre} a ${e.nombre} (${a.con}): ` + (a.sv ? `salvación de ${AB_N[a.hechizo.sv]} de ${e.nombre}: d20 [${a.sv.dd}] ${sgn(a.sv.m) || "+0"} = ${a.sv.total} contra CD ${a.hechizo.cd}: ${a.sv.pasa ? (a.mult ? "la supera, **recibe la mitad**." : "la supera, **no le afecta**.") : "**falla la salvación**."}` : "**impacta sin fallar**.");
+    if (dmg){ const total = Math.max(0, Math.floor(dmg.total * (a.mult ?? 1))), nuevo = await aplicarDano(c, e.id, total); t += `\nDaño: ${lineaTirada(dmg)}${a.mult === 0.5 ? ` → mitad: **${total}**` : ""}${a.hechizo?.tipoDano ? " de " + a.hechizo.tipoDano : ""}. ${trasDano(c, e.id, nuevo)}`; dmg = { ...dmg, total }; }
     S.atq = null;
     await publicar(c, p.id, t);
-    avisoAtaque(p.nombre, a.r, +e.ca, dmg, actorActual(c)?.id === p.id);
+    if (a.r) avisoAtaque(p.nombre, a.r, +e.ca, dmg, actorActual(c)?.id === p.id);
+    else toast((a.impacta ? `<b>${esc(a.con)} alcanza a ${esc(e.nombre)}.</b>${dmg ? ` ${dmg.total} de daño.` : ""}` : `<b>${esc(e.nombre)} supera la salvación</b> contra ${esc(a.con)}.`) + (actorActual(c)?.id === p.id ? " Pasa el turno." : ""), 5000);
     await pasarTurnoTras(c, p.id);
   } catch (er) { toast(esc(errorTexto(er))); }
   S.busy = false; render();
@@ -2043,8 +2067,9 @@ function ataquesDe(p){
   for (const o of armasEquipadas(p)){ const w = o.arma, car = w.car === "SUT" ? (mD > mF ? "DES" : "FUE") : w.car === "MAG" ? conMagia(p) : (w.car || "FUE");
     const mod = modOf(d.sc[car]), mDano = (w.car === "MAG" ? 0 : mod) + (+w.bonoDano || 0);
     out.push({ v:"w:" + o.id, nombre:o.nombre, corto:o.nombre, bono:mod + d.prof + (+w.bonoAt || 0), dado:w.dado || "1d6", mDano, car, tipoDano:w.tipoDano || "" }); }
-  if (CLASES_MAGIA.includes(p.clase)){ const car = conMagia(p); out.push({ v:"MAG", nombre:"Conjuro de ataque", corto:"conjuro", bono:modOf(d.sc[car]) + d.prof, dado:"1d10", mDano:0, car, libre:true }); }
-  if (!out.length || !out.some(x => x.v.startsWith("w:"))){
+  const hz = ataquesHechizo(p); out.push(...hz);
+  if (lanzaConjuros(p) && !hz.length){ const car = conMagia(p); out.push({ v:"MAG", nombre:"Conjuro de ataque", corto:"conjuro", bono:modOf(d.sc[car]) + d.prof, dado:"1d10", mDano:0, car, libre:true }); }
+  if (!out.some(x => x.v.startsWith("w:"))){
     out.push({ v:"FUE", nombre:"Otra arma (Fuerza)", corto:"arma, Fuerza", bono:mF + d.prof, dado:"1d6", mDano:mF, car:"FUE", libre:true });
     out.push({ v:"DES", nombre:"Otra arma (Destreza)", corto:"arma, Destreza", bono:mD + d.prof, dado:"1d6", mDano:mD, car:"DES", libre:true });
   }
@@ -2116,7 +2141,7 @@ function comprarForm(p){
     `Comprado: ${esc(a?.nombre || POCION_CURA.nombre)} por ${po(precio)}.`);
 }
 
-const ataqueHint = op => `Ataque <b class="mono">1d20${sgn(op.bono) || "+0"}</b> (${esc(AB_N[op.car] || op.car)} + competencia${op.v.startsWith("w:") ? " + arma" : ""}) · daño <b class="mono">${esc(op.dado)}${sgn(op.mDano)}</b>${op.tipoDano ? " " + esc(op.tipoDano) : ""}`;
+const ataqueHint = op => (op.hechizo && op.modo === "salvacion" ? `El objetivo tira salvación de ${esc(AB_N[op.sv])} contra tu CD <b class="mono">${op.cd}</b>${op.mitad ? " (mitad si la supera)" : ""}` : op.hechizo && op.modo === "auto" ? `Impacta sin tirar ataque` : `Ataque <b class="mono">1d20${sgn(op.bono) || "+0"}</b> (${esc(AB_N[op.car] || op.car)} + competencia${op.v.startsWith("w:") ? " + arma" : ""})`) + ` · daño <b class="mono">${esc(op.dado)}${sgn(op.mDano)}</b>${op.tipoDano ? " " + esc(op.tipoDano) : ""}`;
 
 /* ---------- Armería (vista) ---------- */
 function nuevaArma(base){ const b = base || ARMAS_SRD.find(a => a.nombre === "Espada larga");
@@ -2261,10 +2286,264 @@ document.addEventListener("change", (ev) => {
   if (t.id === "fa-con"){ const p = pjById(vozActual(partida(S.playId))), op = p && ataquesDe(p).find(x => x.v === t.value); if (!op) return;
     const dn = $("#fa-dano"); if (dn){ dn.value = op.dado; dn.readOnly = !op.libre; } const h = $("#fa-hint"); if (h) h.innerHTML = ataqueHint(op); }
 });
-document.addEventListener("toggle", (ev) => { if (ev.target.matches?.(".inv-d")) S.invAbierto = ev.target.open; }, true);
+document.addEventListener("toggle", (ev) => { if (ev.target.matches?.(".hz-d")) S.hzAbierto = ev.target.open; else if (ev.target.matches?.(".inv-d")) S.invAbierto = ev.target.open; }, true);
 document.addEventListener("input", (ev) => {
   const t = ev.target;
   if (t.matches(".rw-todos")) $$(".rw-xp", t.closest(".recompensas")).forEach(i => { i.value = t.value; });
+});
+/* ==================== HECHIZOS Y MAGIA ==================== */
+// Característica con la que lanza conjuros cada clase (las que no aparecen no lanzan conjuros)
+const CAR_MAGIA = { "Mago":"INT", "Hechicero":"CAR", "Brujo":"CAR", "Bardo":"CAR", "Paladín":"CAR", "Clérigo":"SAB", "Druida":"SAB", "Explorador":"SAB" };
+const CLASES_LANZADORAS = Object.keys(CAR_MAGIA);
+const lanzaConjuros = p => !!CAR_MAGIA[p?.clase];
+const MODOS_HECHIZO = { ataque:"Tirada de ataque de conjuro", salvacion:"El objetivo hace una salvación", auto:"Impacta siempre", cura:"Cura puntos de golpe", utilidad:"Sin daño (utilidad)" };
+const NIVEL_H = n => +n ? `Nivel ${n}` : "Truco";
+// Hechizos del SRD: [nombre, nivel, clases, modo, daño o curación, tipo de daño, salvación, mitad si la supera, suma el modificador, descripción]
+const _M = "Mago", _H = "Hechicero", _B = "Brujo", _C = "Clérigo", _D = "Druida", _Ba = "Bardo", _P = "Paladín", _E = "Explorador";
+const HECHIZOS_SRD = [
+  ["Rayo de fuego",0,[_M,_H],"ataque","1d10","fuego","",false,false,"Lanzas una mota de fuego a una criatura a 120 pies."],
+  ["Rayo de escarcha",0,[_M,_H],"ataque","1d8","frío","",false,false,"Un haz helado; además reduce 10 pies la velocidad del objetivo."],
+  ["Toque helado",0,[_M,_H,_B],"ataque","1d8","necrótico","",false,false,"Una mano espectral; el objetivo no puede recuperar PG hasta tu siguiente turno."],
+  ["Agarre electrizante",0,[_M,_H],"ataque","1d8","rayo","",false,false,"Un toque eléctrico cuerpo a cuerpo; el objetivo no puede hacer reacciones."],
+  ["Descarga sobrenatural",0,[_B],"ataque","1d10","fuerza","",false,false,"Un rayo de energía crepitante a 120 pies."],
+  ["Producir llama",0,[_D],"ataque","1d8","fuego","",false,false,"Una llama en tu mano que da luz o se lanza a 30 pies."],
+  ["Llama sagrada",0,[_C],"salvacion","1d8","radiante","DES",false,false,"Fuego radiante cae sobre una criatura que veas."],
+  ["Rociada venenosa",0,[_M,_H,_B,_D],"salvacion","1d12","veneno","CON",false,false,"Una nube de gas tóxico desde tu mano."],
+  ["Burla dañina",0,[_Ba],"salvacion","1d4","psíquico","SAB",false,false,"Insultos cargados de magia; el objetivo tiene desventaja en su siguiente ataque."],
+  ["Luz",0,[_Ba,_C,_H,_M],"utilidad","","","",false,false,"Un objeto brilla como una antorcha durante una hora."],
+  ["Mano de mago",0,[_Ba,_B,_H,_M],"utilidad","","","",false,false,"Una mano espectral que mueve objetos ligeros a 30 pies."],
+  ["Orientación divina",0,[_C,_D],"utilidad","","","",false,false,"Un aliado suma 1d4 a una prueba de característica."],
+  ["Proyectil mágico",1,[_M,_H],"auto","3d4+3","fuerza","",false,false,"Tres dardos de fuerza que nunca fallan."],
+  ["Manos ardientes",1,[_M,_H],"salvacion","3d6","fuego","DES",true,false,"Un cono de llamas de 15 pies."],
+  ["Ola atronadora",1,[_Ba,_D,_M,_H],"salvacion","2d8","trueno","CON",true,false,"Una onda de fuerza que empuja 10 pies."],
+  ["Rayo de enfermedad",1,[_M,_H],"ataque","2d8","veneno","",false,false,"Un rayo verdoso que puede envenenar."],
+  ["Saeta guía",1,[_C],"ataque","4d6","radiante","",false,false,"Un destello de luz; el siguiente ataque contra el objetivo tiene ventaja."],
+  ["Infligir heridas",1,[_C],"ataque","3d10","necrótico","",false,false,"Un toque cuerpo a cuerpo cargado de energía negativa."],
+  ["Castigo atronador",1,[_P],"auto","2d6","trueno","",false,false,"Tu siguiente ataque con arma suma este daño y empuja al objetivo."],
+  ["Marca del cazador",1,[_E],"auto","1d6","","",false,false,"Marcas a una presa: tus ataques con arma le hacen 1d6 extra."],
+  ["Curar heridas",1,[_Ba,_C,_D,_P,_E],"cura","1d8","","",false,true,"Tocas a una criatura y recupera PG."],
+  ["Palabra curativa",1,[_Ba,_C,_D],"cura","1d4","","",false,true,"Una palabra a 60 pies que devuelve PG como acción adicional."],
+  ["Escudo",1,[_M,_H],"utilidad","","","",false,false,"Reacción: +5 a la CA hasta tu siguiente turno."],
+  ["Dormir",1,[_Ba,_H,_M],"utilidad","5d8","","",false,false,"Duerme criaturas cuya suma de PG no supere el resultado."],
+  ["Detectar magia",1,[_Ba,_C,_D,_M,_H,_P,_E],"utilidad","","","",false,false,"Sientes la magia a 30 pies durante 10 minutos."],
+  ["Armadura de mago",1,[_M,_H],"utilidad","","","",false,false,"Tu CA pasa a ser 13 + DES durante 8 horas."],
+  ["Rayo abrasador",2,[_M,_H],"ataque","2d6","fuego","",false,false,"Tres rayos de fuego (aquí, uno por tirada)."],
+  ["Arma espiritual",2,[_C],"ataque","1d8","fuerza","",false,true,"Un arma flotante que ataca como acción adicional."],
+  ["Romper",2,[_Ba,_H,_B,_M],"salvacion","3d8","trueno","CON",true,false,"Un estruendo que rompe objetos y hiere a quien esté cerca."],
+  ["Restablecimiento menor",2,[_Ba,_C,_D,_P,_E],"utilidad","","","",false,false,"Quita una enfermedad o un estado: cegado, ensordecido, paralizado o envenenado."],
+  ["Bola de fuego",3,[_M,_H],"salvacion","8d6","fuego","DES",true,false,"Una explosión de 20 pies de radio."],
+  ["Relámpago",3,[_M,_H],"salvacion","8d6","rayo","DES",true,false,"Una línea de 100 pies de rayo."],
+  ["Espíritus guardianes",3,[_C],"salvacion","3d8","radiante","SAB",true,false,"Espíritus que hieren a los enemigos que se acercan."],
+  ["Curar heridas en masa",5,[_Ba,_C,_D],"cura","3d8","","",false,true,"Hasta seis criaturas recuperan PG."]
+].map(([nombre, nivel, clases, modo, dano, tipoDano, sv, mitad, sumaMod, descripcion]) => ({ id:"srd:" + nombre, srd:true, nombre, nivel, clases, modo, dano, tipoDano, sv, mitad, sumaMod, descripcion }));
+
+function hechizoFromRow(r){ return { ...(r.datos || {}), id:r.id, autor:r.autor, nombre:r.nombre, actualizado:r.actualizado }; }
+function hechizoToRow(h){ const { id, autor, nombre, actualizado, srd, ...datos } = h; return { nombre, datos }; }
+const catalogoHechizos = () => [...(S.hechizos || []), ...HECHIZOS_SRD];
+const hechizoById = id => catalogoHechizos().find(h => h.id === id);
+const puedeLanzar = (p, h) => lanzaConjuros(p) && (!h.clases?.length || h.clases.includes(p.clase));
+const efectoTxt = h => h.modo === "cura" ? `Cura ${h.dano || "?"}${h.sumaMod ? " + mod." : ""}` : h.dano ? `${h.dano}${h.sumaMod ? " + mod." : ""} ${h.tipoDano || ""}` : "—";
+const comoTxt = h => h.modo === "salvacion" ? `Salvación de ${AB_N[h.sv] || h.sv}${h.mitad ? " (mitad si la supera)" : ""}` : MODOS_HECHIZO[h.modo] || "";
+const hechizosDe = p => Array.isArray(p?.hechizos) ? p.hechizos : [];
+// Copia del hechizo que guarda el personaje (si luego se edita en el grimorio, la suya no cambia hasta que la vuelva a añadir)
+const copiaHechizo = h => ({ id:nuevoId(), hechizoId:h.id, nombre:h.nombre, nivel:+h.nivel || 0, modo:h.modo, dano:h.dano || "", tipoDano:h.tipoDano || "", sv:h.sv || "", mitad:!!h.mitad, sumaMod:!!h.sumaMod, descripcion:h.descripcion || "" });
+function magiaDe(p){ const d = derive(p), car = CAR_MAGIA[p.clase] || "INT", mod = modOf(d.sc[car]); return { car, mod, ataque:mod + d.prof, cd:8 + d.prof + mod }; }
+// Opciones de hechizo para el formulario de ataque
+function ataquesHechizo(p){
+  if (!lanzaConjuros(p)) return [];
+  const m = magiaDe(p);
+  return hechizosDe(p).filter(h => ["ataque","salvacion","auto"].includes(h.modo) && h.dano).map(h => ({
+    v:"h:" + h.id, nombre:h.nombre + (h.modo === "salvacion" ? ` (salv. ${h.sv} CD ${m.cd})` : h.modo === "auto" ? " (no falla)" : ""), corto:h.nombre, bono:h.modo === "ataque" ? m.ataque : 0,
+    dado:h.dano, mDano:h.sumaMod ? m.mod : 0, car:m.car, tipoDano:h.tipoDano, modo:h.modo, sv:h.sv, mitad:h.mitad, cd:m.cd, hechizo:true }));
+}
+
+/* ---------- lista de hechizos del personaje (ficha y mesa) ---------- */
+function hechizosHtml(p, c){
+  const hs = hechizosDe(p); if (!lanzaConjuros(p)) return hs.length ? `<p class="small muted">Los ${esc(p.clase.toLowerCase())}s no lanzan conjuros.</p>` : "";
+  const m = magiaDe(p), mio = p.dueno === S.me, grupo = c ? grupoDe(c.id) : [];
+  return `<div class="hechizos">
+    <p class="small muted">Lanza con ${AB_N[m.car]}: ataque de conjuro <b class="mono">${fm(m.ataque)}</b> · CD de salvación <b class="mono">${m.cd}</b></p>
+    ${hs.length ? hs.slice().sort((a, b) => (+a.nivel || 0) - (+b.nivel || 0)).map(h => `<div class="inv-row"><div><b>${esc(h.nombre)}</b> <span class="chip">${NIVEL_H(h.nivel)}</span>
+        <div class="small muted">${esc(efectoTxt(h))} · ${esc(comoTxt(h))}</div>${h.descripcion ? `<div class="small muted">${esc(h.descripcion)}</div>` : ""}</div>
+      ${mio && c && (h.modo === "cura" || h.modo === "utilidad") ? `<div class="row">${h.modo === "cura" ? `<select data-cura-a="${esc(h.id)}" aria-label="A quién cura">${grupo.map(g => `<option value="${g.id}" ${g.id === p.id ? "selected" : ""}>${esc(g.nombre)}</option>`).join("")}</select>${c.dadosFisicos ? inputDado(`data-cura-val="${esc(h.id)}"`, "dados") : ""}` : ""}
+        <button class="btn sm" data-act="hz-lanzar" data-pj="${p.id}" data-h="${esc(h.id)}" ${S.busy ? "disabled" : ""}>Lanzar</button></div>` : ""}</div>`).join("")
+      : `<p class="small muted">${mio ? `Todavía no tiene hechizos. Añádelos al editar el personaje.` : "No tiene hechizos."}</p>`}
+    ${c && hs.some(h => ["ataque","salvacion","auto"].includes(h.modo)) ? `<p class="small muted">Los hechizos de daño se lanzan desde el formulario de ataque, en tu turno.</p>` : ""}
+  </div>`;
+}
+async function lanzarHechizo(c, p, hid){
+  const h = hechizosDe(p).find(x => x.id === hid); if (!h || !c) return;
+  if (h.modo === "cura"){
+    const dest = pjById($(`[data-cura-a="${hid}"]`)?.value) || p, not = h.dano + (h.sumaMod ? sgn(magiaDe(p).mod) : "");
+    let r; try { r = tirarCon(c, not, `${h.nombre} de ${p.nombre}`, "normal", $(`[data-cura-val="${hid}"]`)?.value); } catch (e) { toast(esc(e.message)); return; }
+    const cura = Math.max(0, r.total); cambiarPG(dest.id, cura);
+    S.busy = true; try { await publicar(c, p.id, `${p.nombre} lanza ${h.nombre} sobre ${dest.id === p.id ? "sí mismo" : dest.nombre}: ${lineaTirada(r)} PG recuperados.`); } catch {} S.busy = false;
+    toast(`${esc(dest.nombre)} recupera ${cura} PG.`); render(); return;
+  }
+  S.busy = true; try { await publicar(c, p.id, `${p.nombre} lanza ${h.nombre}.${h.descripcion ? " " + h.descripcion : ""}`); } catch {} S.busy = false; render();
+}
+
+/* ---------- Grimorio (vista) ---------- */
+function nuevoHechizo(base){
+  const b = base || { nombre:"", nivel:0, clases:[], modo:"ataque", dano:"1d10", tipoDano:"fuego", sv:"DES", mitad:false, sumaMod:false, descripcion:"" };
+  return { id:null, autor:S.me, ...clone({ nombre:base ? b.nombre + " (variante)" : "", nivel:b.nivel, clases:b.clases || [], modo:b.modo, dano:b.dano, tipoDano:b.tipoDano || "fuego", sv:b.sv || "DES", mitad:!!b.mitad, sumaMod:!!b.sumaMod, descripcion:b.descripcion || "" }) };
+}
+function vGrimorio(){
+  if (S.editHechizo) return vHechizoEditor();
+  const propios = S.hechizos || [], f = S.hzFiltro || "";
+  const ver = h => !f || !h.clases?.length || h.clases.includes(f);
+  const cab = `<thead><tr><th>Hechizo</th><th>Nivel</th><th>Efecto</th><th>Cómo funciona</th><th>Clases</th><th></th></tr></thead>`;
+  const fila = (h, srd) => `<tr><td><b>${esc(h.nombre)}</b>${h.descripcion ? `<div class="small muted">${esc(h.descripcion.slice(0, 140))}</div>` : ""}</td><td class="small">${NIVEL_H(h.nivel)}</td><td class="mono small">${esc(efectoTxt(h))}</td><td class="small">${esc(comoTxt(h))}</td><td class="small">${esc((h.clases?.length ? h.clases : ["Todas las que lanzan"]).join(", "))}</td>
+    <td>${srd ? `<button class="btn sm ghost" data-act="hz-copiar" data-id="${esc(h.id)}">Variante</button>` : h.autor === S.me ? `<button class="btn sm" data-act="hz-editar" data-id="${h.id}">Editar</button>` : ownerChip(h.autor)}</td></tr>`;
+  const lista = arr => arr.filter(ver).sort((a, b) => (+a.nivel || 0) - (+b.nivel || 0) || a.nombre.localeCompare(b.nombre));
+  return `<section class="view">
+    <div class="panel-h"><div style="display:grid;gap:8px"><h1>Hechizos y magia</h1><p class="lede">El grimorio de la mesa: cada hechizo con su nivel, las clases que pueden usarlo y el daño o la curación que hace. Se añaden a los personajes al crearlos o editarlos, y solo a clases que lanzan conjuros.</p></div>
+    <button class="btn primary" data-act="hz-nuevo">Crear hechizo</button></div>
+    <label class="field" style="max-width:280px"><span>Ver hechizos de</span><select id="hz-filtro"><option value="">Todas las clases</option>${CLASES_LANZADORAS.map(k => `<option ${k === f ? "selected" : ""}>${k}</option>`).join("")}</select></label>
+    <div class="panel"><h2>Creados por la mesa</h2>
+      ${lista(propios).length ? `<div class="tblwrap"><table class="armas">${cab}<tbody>${lista(propios).map(h => fila(h, false)).join("")}</tbody></table></div>` : `<p class="small muted">${propios.length ? "Ninguno de esta clase." : "Todavía no hay hechizos propios. Crea uno, o pulsa «Variante» en uno del reglamento para partir de él."}</p>`}</div>
+    <div class="panel"><details ${propios.length ? "" : "open"}><summary><b>Hechizos del reglamento (${lista(HECHIZOS_SRD).length})</b></summary><div class="tblwrap"><table class="armas">${cab}<tbody>${lista(HECHIZOS_SRD).map(h => fila(h, true)).join("")}</tbody></table></div></details>
+      <p class="small muted">Ataque de conjuro: d20 + modificador de la característica mágica de la clase + competencia. CD de salvación: 8 + ese modificador + competencia. Los trucos (nivel 0) se pueden lanzar sin límite.</p></div>
+  </section>`;
+}
+function vHechizoEditor(){
+  const h = S.editHechizo;
+  return `<section class="view">
+    <div class="panel-h"><h1>${h.id ? "Editar hechizo" : "Nuevo hechizo"}</h1><button class="btn ghost" data-act="hz-cancelar">Volver</button></div>
+    <div class="panel"><div class="grid2">
+      <label class="field"><span>Nombre</span><input type="text" id="hz-nombre" maxlength="60" value="${esc(h.nombre)}" placeholder="Lanza de hielo, Rayo lunar…"></label>
+      <label class="field"><span>Nivel</span><select id="hz-nivel">${[0,1,2,3,4,5,6,7,8,9].map(n => `<option value="${n}" ${+h.nivel === n ? "selected" : ""}>${NIVEL_H(n)}</option>`).join("")}</select></label>
+      <label class="field"><span>Cómo funciona</span><select id="hz-modo">${Object.entries(MODOS_HECHIZO).map(([k, t]) => `<option value="${k}" ${k === h.modo ? "selected" : ""}>${t}</option>`).join("")}</select></label>
+      <label class="field"><span>${h.modo === "cura" ? "Curación" : "Daño"} (dados)</span><input type="text" id="hz-dano" class="mono" value="${esc(h.dano)}" placeholder="${h.modo === "utilidad" ? "Opcional" : "2d6"}"></label>
+      ${h.modo === "cura" || h.modo === "utilidad" ? "" : `<label class="field"><span>Tipo de daño</span><select id="hz-tipoDano">${TIPOS_DANO.map(t => `<option ${t === h.tipoDano ? "selected" : ""}>${t}</option>`).join("")}</select></label>`}
+      ${h.modo === "salvacion" ? `<label class="field"><span>Salvación del objetivo</span><select id="hz-sv">${AB.map(k => `<option value="${k}" ${k === h.sv ? "selected" : ""}>${AB_N[k]}</option>`).join("")}</select></label>
+        <label class="switch"><input type="checkbox" id="hz-mitad" ${h.mitad ? "checked" : ""}> Si supera la salvación, recibe la mitad del daño</label>` : ""}
+      ${h.modo === "utilidad" ? "" : `<label class="switch"><input type="checkbox" id="hz-sumaMod" ${h.sumaMod ? "checked" : ""}> Suma el modificador mágico del lanzador</label>`}
+    </div>
+    <div class="field"><span>Clases que pueden usarlo</span><div class="checks">${CLASES_LANZADORAS.map(k => `<label class="switch small"><input type="checkbox" class="hz-clase" value="${k}" ${h.clases?.includes(k) ? "checked" : ""}> ${k}</label>`).join("")}</div>
+      <span class="small muted">Si no marcas ninguna, lo puede aprender cualquier clase que lance conjuros. Guerreros, bárbaros, monjes y pícaros no lanzan conjuros.</span></div>
+    <label class="field"><span>Descripción</span><textarea id="hz-descripcion" maxlength="600" placeholder="Qué hace, alcance, duración…">${esc(h.descripcion)}</textarea></label>
+    <div class="row"><button class="btn primary" data-act="hz-guardar" ${S.busy ? "disabled" : ""}>Guardar hechizo</button>${h.id ? `<span data-confirm="${h.id}"><button class="btn ghost" data-act="hz-borrar" data-id="${h.id}">Borrar</button></span>` : ""}</div></div>
+  </section>`;
+}
+function leerHechizo(){
+  const h = S.editHechizo; if (!h || !$("#hz-nombre")) return;
+  h.nombre = $("#hz-nombre").value.trim(); h.nivel = +$("#hz-nivel").value || 0; h.modo = $("#hz-modo").value; h.dano = $("#hz-dano").value.trim(); h.descripcion = $("#hz-descripcion").value.trim();
+  if ($("#hz-tipoDano")) h.tipoDano = $("#hz-tipoDano").value; if ($("#hz-sv")) h.sv = $("#hz-sv").value;
+  if ($("#hz-mitad")) h.mitad = $("#hz-mitad").checked; if ($("#hz-sumaMod")) h.sumaMod = $("#hz-sumaMod").checked;
+  h.clases = $$(".hz-clase").filter(x => x.checked).map(x => x.value);
+}
+async function guardarHechizo(){
+  leerHechizo(); const h = S.editHechizo;
+  if (h.nombre.length < 2){ toast("Ponle nombre al hechizo."); $("#hz-nombre")?.focus(); return; }
+  if (h.modo !== "utilidad" || h.dano){ if (!h.dano){ toast("Escribe los dados de daño o curación, por ejemplo 2d6."); $("#hz-dano")?.focus(); return; }
+    try { partesNot(h.dano); } catch (e) { toast(esc(e.message)); $("#hz-dano")?.focus(); return; } }
+  if (h.modo === "cura" || h.modo === "utilidad") h.tipoDano = ""; if (h.modo !== "salvacion"){ h.sv = ""; h.mitad = false; }
+  S.busy = true; render(true);
+  try {
+    const row = hechizoToRow(h), r = h.id ? await guardar(sb.from("dm_hechizos").update(row).eq("id", h.id).select().single(), "Hechizo guardado.")
+                                          : await guardar(sb.from("dm_hechizos").insert(row).select().single(), "Hechizo creado.");
+    const obj = hechizoFromRow(r); S.hechizos = [obj, ...(S.hechizos || []).filter(x => x.id !== obj.id)]; S.editHechizo = null;
+  } catch {}
+  S.busy = false; render(true);
+}
+
+/* ---------- editor del personaje: equipo, objetos, oro y hechizos ---------- */
+function editorEquipoHtml(p){
+  const inv = invDe(p), hs = hechizosDe(p), lanza = lanzaConjuros(p), disp = catalogoHechizos().filter(h => puedeLanzar(p, h) && !hs.some(x => x.hechizoId === h.id));
+  const objFila = o => { const w = o.arma, k = esc(o.id);
+    return `<div class="ed-obj" data-ed-obj="${k}">
+      <div class="row">
+        <label class="field"><span>${TIPOS_OBJ[o.tipo] || "Objeto"}</span><input type="text" data-f="nombre" maxlength="80" value="${esc(o.nombre)}"></label>
+        <label class="field" style="max-width:80px"><span>Cantidad</span><input type="number" data-f="cant" min="1" max="999" value="${+o.cant || 1}" class="mono"></label>
+        ${o.tipo === "pocion" ? `<label class="field" style="max-width:110px"><span>Cura (dados)</span><input type="text" data-f="cura" class="mono" value="${esc(o.cura || "")}" placeholder="—"></label>` : ""}
+        ${w ? `<label class="field" style="max-width:90px"><span>Daño</span><input type="text" data-f="dado" class="mono" value="${esc(w.dado)}"></label>
+          <label class="field" style="max-width:80px"><span>+ ataque</span><input type="number" data-f="bonoAt" min="-5" max="10" value="${+w.bonoAt || 0}" class="mono"></label>
+          <label class="field" style="max-width:80px"><span>+ daño</span><input type="number" data-f="bonoDano" min="-5" max="20" value="${+w.bonoDano || 0}" class="mono"></label>
+          <label class="field" style="max-width:150px"><span>Se usa con</span><select data-f="car">${Object.entries(CAR_ARMA).map(([v, t]) => `<option value="${v}" ${v === w.car ? "selected" : ""}>${t.split(" (")[0].split(":")[0]}</option>`).join("")}</select></label>
+          <label class="switch small"><input type="checkbox" data-f="equipada" ${o.equipada ? "checked" : ""}> Equipada</label>` : ""}
+        <label class="field"><span>Nota</span><input type="text" data-f="nota" maxlength="120" value="${esc(o.nota || "")}" placeholder="Opcional"></label>
+        <button class="btn sm ghost" data-act="ed-obj-quitar" data-o="${k}" aria-label="Quitar ${esc(o.nombre)}">Quitar</button>
+      </div></div>`; };
+  const hzFila = h => `<div class="ed-obj" data-ed-hz="${esc(h.id)}"><div class="row">
+      <label class="field"><span>${NIVEL_H(h.nivel)}</span><input type="text" data-f="nombre" maxlength="60" value="${esc(h.nombre)}"></label>
+      ${h.modo !== "utilidad" ? `<label class="field" style="max-width:100px"><span>${h.modo === "cura" ? "Cura" : "Daño"}</span><input type="text" data-f="dano" class="mono" value="${esc(h.dano)}"></label>` : ""}
+      <span class="small muted" style="align-self:center">${esc(comoTxt(h))}${h.tipoDano ? " · " + esc(h.tipoDano) : ""}</span>
+      <button class="btn sm ghost" data-act="ed-hz-quitar" data-h="${esc(h.id)}" aria-label="Quitar ${esc(h.nombre)}">Quitar</button></div></div>`;
+  return `<div class="panel ed-equipo">
+    <h2>5. Equipo, objetos y hechizos</h2>
+    <p class="small muted">Todo lo que lleva el personaje. Puedes cambiar nombres, cantidades, daños y bonificaciones. Las armas equipadas son las que aparecen al atacar.</p>
+    <div class="row"><label class="field" style="max-width:160px"><span>Oro (po)</span><input type="number" id="f-oro" min="0" max="1000000" step="0.01" value="${inv.oro}" class="mono"></label></div>
+    <h3>Armas y objetos</h3>
+    ${inv.objetos.length ? inv.objetos.map(objFila).join("") : `<p class="small muted">No lleva nada todavía.</p>`}
+    <div class="row ed-add">
+      <label class="field"><span>Añadir</span><select id="ed-obj-tipo"><option value="objeto">Objeto</option><option value="pocion">Poción de curación (2d4+2)</option><option value="pocion-otra">Otra poción</option>${catalogoArmas().map(a => `<option value="arma:${esc(a.id)}">Arma: ${esc(a.nombre)} (${esc(resumenArma(a))})</option>`).join("")}</select></label>
+      <label class="field"><span>Nombre</span><input type="text" id="ed-obj-nom" maxlength="80" placeholder="Cuerda, antorcha, mapa…"></label>
+      <label class="field" style="max-width:80px"><span>Cantidad</span><input type="number" id="ed-obj-cant" min="1" max="999" value="1" class="mono"></label>
+      <button class="btn sm" data-act="ed-obj-anadir">Añadir</button>
+    </div>
+    ${armasDelEquipo(p).length && !inv.objetos.some(o => o.tipo === "arma") ? `<p class="small muted">En el texto del equipo hay armas: ${armasDelEquipo(p).map(o => esc(o.nombre) + " (" + o.arma.dado + ")").join(", ")}. <button class="btn sm ghost" data-act="ed-importar">Pasarlas a la lista</button></p>` : ""}
+    <h3>Hechizos</h3>
+    ${lanza ? `<p class="small muted">Los ${esc(p.clase.toLowerCase())}s lanzan conjuros con ${AB_N[CAR_MAGIA[p.clase]]}: ataque de conjuro ${fm(magiaDe(p).ataque)}, CD ${magiaDe(p).cd}.</p>
+      ${hs.length ? hs.map(hzFila).join("") : `<p class="small muted">Sin hechizos todavía.</p>`}
+      <div class="row ed-add"><label class="field"><span>Añadir hechizo</span><select id="ed-hz">${disp.length ? disp.sort((a, b) => (+a.nivel || 0) - (+b.nivel || 0) || a.nombre.localeCompare(b.nombre)).map(h => `<option value="${esc(h.id)}">${NIVEL_H(h.nivel)} · ${esc(h.nombre)} (${esc(efectoTxt(h))})</option>`).join("") : `<option value="">No quedan hechizos para esta clase</option>`}</select></label>
+        <button class="btn sm" data-act="ed-hz-anadir" ${disp.length ? "" : "disabled"}>Añadir</button></div>
+      <p class="small muted">Solo aparecen los hechizos que puede usar un ${esc(p.clase.toLowerCase())}. Puedes crear más en <a href="#hechizos">Hechizos</a>.</p>`
+      : `<p class="small muted">Los ${esc(String(p.clase).toLowerCase())}s no lanzan conjuros, así que no pueden tener hechizos.${hs.length ? ` <b>Al guardar se quitarán los ${hs.length} hechizos que tenía.</b>` : ""}</p>`}
+  </div>`;
+}
+// Pasa al personaje en edición lo escrito en las filas de objetos y hechizos
+function leerEquipo(p){
+  if (!$(".ed-equipo")) return;
+  const inv = invDe(p);
+  const oro = $("#f-oro"); if (oro) inv.oro = Math.max(0, +oro.value || 0);
+  for (const row of $$("[data-ed-obj]")){ const o = inv.objetos.find(x => x.id === row.dataset.edObj); if (!o) continue;
+    for (const el of $$("[data-f]", row)){ const f = el.dataset.f, v = el.type === "checkbox" ? el.checked : el.value;
+      if (["dado","bonoAt","bonoDano","car"].includes(f)){ if (o.arma) o.arma[f] = f.startsWith("bono") ? (+v || 0) : String(v).trim() || o.arma[f]; }
+      else if (f === "cant") o.cant = Math.max(1, Math.min(999, Math.round(+v || 1)));
+      else if (f === "equipada") o.equipada = v;
+      else o[f] = String(v).trim() || (f === "nombre" ? o.nombre : ""); } }
+  p.inventario = inv;
+  const hs = hechizosDe(p);
+  for (const row of $$("[data-ed-hz]")){ const h = hs.find(x => x.id === row.dataset.edHz); if (!h) continue;
+    for (const el of $$("[data-f]", row)){ const v = el.value.trim(); if (v || el.dataset.f !== "nombre") h[el.dataset.f] = v || h[el.dataset.f]; } }
+  p.hechizos = hs;
+}
+function validarEquipo(p){
+  for (const o of invDe(p).objetos){ try { if (o.arma) partesNot(o.arma.dado); if (o.cura) partesNot(o.cura); } catch (e) { return `${o.nombre}: ${e.message}`; } }
+  for (const h of hechizosDe(p)) if (h.dano){ try { partesNot(h.dano); } catch (e) { return `${h.nombre}: ${e.message}`; } }
+  return "";
+}
+
+/* ---------- eventos ---------- */
+document.addEventListener("click", (ev) => {
+  const t = ev.target.closest("[data-act^='hz-'],[data-act^='ed-']"); if (!t) return;
+  switch (t.dataset.act){
+    case "hz-nuevo": S.editHechizo = nuevoHechizo(); render(); window.scrollTo(0, 0); break;
+    case "hz-copiar": { const b = hechizoById(t.dataset.id); if (b){ S.editHechizo = nuevoHechizo(b); render(); window.scrollTo(0, 0); } } break;
+    case "hz-editar": { const h = hechizoById(t.dataset.id); if (h){ S.editHechizo = { clases:[], ...clone(h) }; render(); window.scrollTo(0, 0); } } break;
+    case "hz-cancelar": S.editHechizo = null; render(true); break;
+    case "hz-guardar": guardarHechizo(); break;
+    case "hz-borrar": confirmar(t, async () => { if (await borrar("dm_hechizos", t.dataset.id, "Hechizo borrado. Quien ya lo tenía lo conserva.")){ S.hechizos = (S.hechizos || []).filter(h => h.id !== t.dataset.id); S.editHechizo = null; } render(true); }); break;
+    case "hz-lanzar": { const c = partida(S.playId), p = pjById(t.dataset.pj); if (c && p) lanzarHechizo(c, p, t.dataset.h); } break;
+    // editor del personaje
+    case "ed-obj-anadir": { leerForm(); const p = S.edit, tipo = $("#ed-obj-tipo").value, nom = $("#ed-obj-nom").value.trim(), cant = Math.max(1, Math.min(999, Math.round(+$("#ed-obj-cant").value || 1))), inv = invDe(p);
+        if (tipo.startsWith("arma:")){ const a = armaById(tipo.slice(5)); if (!a) break; inv.objetos.push(objetoDeArma(a, { cant, nombre:nom || a.nombre, equipada:!inv.objetos.some(o => o.tipo === "arma" && o.equipada) })); }
+        else if (tipo === "pocion") inv.objetos.push({ id:nuevoId(), nombre:nom || POCION_CURA.nombre, tipo:"pocion", cura:POCION_CURA.cura, cant });
+        else { if (!nom){ toast("Escribe qué es."); $("#ed-obj-nom")?.focus(); break; } inv.objetos.push({ id:nuevoId(), nombre:nom, tipo:tipo === "pocion-otra" ? "pocion" : "objeto", cant }); }
+        p.inventario = inv; render(true); } break;
+    case "ed-obj-quitar": { leerForm(); const inv = invDe(S.edit); inv.objetos = inv.objetos.filter(o => o.id !== t.dataset.o); S.edit.inventario = inv; render(true); } break;
+    case "ed-importar": { leerForm(); const inv = invDe(S.edit); for (const o of armasDelEquipo(S.edit)){ const { delEquipo, ...x } = o; inv.objetos.push({ ...x, id:nuevoId(), cant:1 }); } S.edit.inventario = inv; render(true); } break;
+    case "ed-hz-anadir": { leerForm(); const h = hechizoById($("#ed-hz").value); if (!h) break;
+        if (!puedeLanzar(S.edit, h)){ toast(`Un ${esc(S.edit.clase.toLowerCase())} no puede usar ${esc(h.nombre)}.`); break; }
+        S.edit.hechizos = [...hechizosDe(S.edit), copiaHechizo(h)]; render(true); } break;
+    case "ed-hz-quitar": { leerForm(); S.edit.hechizos = hechizosDe(S.edit).filter(h => h.id !== t.dataset.h); render(true); } break;
+  }
+});
+document.addEventListener("change", (ev) => {
+  const t = ev.target;
+  if (t.id === "hz-filtro"){ S.hzFiltro = t.value; render(); }
+  if (t.id === "hz-modo"){ leerHechizo(); render(true); }
 });
 /* ==================== ejemplo ==================== */
 async function cargarEjemplo(){
@@ -2356,7 +2635,7 @@ document.addEventListener("click", async (ev) => {
     case "ejemplo": cargarEjemplo(); break;
     // personajes
     case "pj-nuevo": S.edit = nuevoPJ(); S.verPj = null; ir("#personajes"); window.scrollTo(0,0); break;
-    case "pj-editar": { const p = pjById(id); if (!p) break; S.edit = clone(p); S.edit.pool ||= AB.map(k => S.edit.base[k]); S.edit.base ||= {FUE:10,DES:10,CON:10,INT:10,SAB:10,CAR:10}; render(); window.scrollTo(0,0); } break;
+    case "pj-editar": { const p = pjById(id); if (!p) break; S.edit = clone(p); S.edit._invBase = JSON.stringify(invDe(p)); S.verPj = null; S.edit.pool ||= AB.map(k => S.edit.base[k]); S.edit.base ||= {FUE:10,DES:10,CON:10,INT:10,SAB:10,CAR:10}; render(); window.scrollTo(0,0); } break;
     case "pj-ver": S.verPj = id; render(); window.scrollTo(0,0); break;
     case "pj-volver": S.verPj = null; render(); break;
     case "pj-cancelar": S.edit = null; render(); break;
